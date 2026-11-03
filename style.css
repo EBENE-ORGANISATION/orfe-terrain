@@ -20,3 +20,6 @@ footer{max-width:1120px;margin:0 auto;background:transparent;color:#55616d;font-
 [hidden]{display:none!important}
 html{scroll-padding-top:90px;scroll-padding-bottom:calc(var(--bas) + 100px)}
 .gps-tuile:has(.vert){background:#effbf2;border-color:#177039}.gps-tuile:has(.orange){background:#fff3db;border-color:#a65300}.gps-tuile:has(.rouge){background:#fff0f0;border-color:#b21925}
+
+/* Lot 5B : mêmes tuiles et actions que le lot. */
+.resultat-ajout{margin-bottom:12px}.resultat-ajout .resultat{margin-bottom:0}.ajouter-tournee{width:100%;margin-top:6px}.lot-tuile.terminee{background:#eef0f2;color:#687380}.chiffres-lot.deux{grid-template-columns:repeat(2,1fr)}

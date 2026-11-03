@@ -3,23 +3,25 @@ import {texte,chiffres,nifValide,dateLocale,nouvelId,CHOIX,validerFiche,proposer
 import {ouvrirStockage} from './stockage.mjs';
 import {ecouterGPS} from './gps.mjs';
 import {poster,carteRues} from './transport.mjs';
-import {indexerRecherche,lireConnus,chercher,miseAJour,distance,RESULTATS,resultatsVisibles,numeros,localisation,validerVisite,annulation,appliquerVisitesLocales,visitesActives,avertissementsCadenas,mesPoints,trajet,liensMaps,appliquerActions} from './tournee.mjs';
+import {cleAjout,ajouterAjout,etatAjout,indexerRecherche,lireConnus,chercher,miseAJour,distance,RESULTATS,resultatsVisibles,numeros,localisation,validerVisite,annulation,appliquerVisitesLocales,visitesActives,avertissementsCadenas,mesPoints,trajet,liensMaps,appliquerActions} from './tournee.mjs';
 import {pointValide} from './metier.mjs';
 import {resumeExtraction,milliers,nomExtraction,chargerOutils,creerExcel,creerPDF,telecharger} from './extraction.mjs';
 
 const $=id=>document.getElementById(id);
 const factice=new URL(location.href).searchParams.get('factice')==='1';
 const echapper=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const ICONES={"liste":"<path d=\"M4 6h16M4 12h16M4 18h10\"/>","plus":"<path d=\"M12 5v14M5 12h14\"/>","loupe":"<circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"m20 20-4-4\"/>","extraire":"<path d=\"M12 3v12m-5-5 5 5 5-5M4 15v6h16v-6\"/>","gestion":"<circle cx=\"9\" cy=\"7\" r=\"3\"/><path d=\"M3 21v-3a6 6 0 0 1 12 0v3M17 4a3 3 0 0 1 0 6m2 4a5 5 0 0 1 2 4v3\"/>","coche":"<path d=\"m5 12 5 5 9-10\"/>","billet":"<rect x=\"3\" y=\"6\" width=\"18\" height=\"12\" rx=\"2\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>","calendrier":"<rect x=\"4\" y=\"5\" width=\"16\" height=\"15\" rx=\"2\"/><path d=\"M4 10h16M9 3v4M15 3v4\"/>","horloge":"<circle cx=\"12\" cy=\"12\" r=\"8\"/><path d=\"M12 8v4l3 2\"/>","maison":"<path d=\"M4 20V9l8-5 8 5v11M9 20v-6h6v6\"/>","cadenas":"<rect x=\"5\" y=\"11\" width=\"14\" height=\"9\" rx=\"2\"/><path d=\"M8 11V8a4 4 0 0 1 8 0v3\"/>","interdit":"<circle cx=\"12\" cy=\"12\" r=\"8\"/><path d=\"M7 17 17 7\"/>","fleche":"<path d=\"M5 12h14m-6-6 6 6-6 6\"/>","question":"<path d=\"M9 9a3 3 0 1 1 4 2.8c-.6.3-1 .9-1 1.6V15M12 18v1\"/>","retour":"<path d=\"M4 12a8 8 0 1 0 3-6.2M4 4v4h4\"/>","ouvert":"<rect x=\"5\" y=\"11\" width=\"14\" height=\"9\" rx=\"2\"/><path d=\"M8 11V8a4 4 0 0 1 8 0\"/>"};
+const ICONES={enveloppe:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 6 9 7 9-7"/>',"liste":"<path d=\"M4 6h16M4 12h16M4 18h10\"/>","plus":"<path d=\"M12 5v14M5 12h14\"/>","loupe":"<circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"m20 20-4-4\"/>","extraire":"<path d=\"M12 3v12m-5-5 5 5 5-5M4 15v6h16v-6\"/>","gestion":"<circle cx=\"9\" cy=\"7\" r=\"3\"/><path d=\"M3 21v-3a6 6 0 0 1 12 0v3M17 4a3 3 0 0 1 0 6m2 4a5 5 0 0 1 2 4v3\"/>","coche":"<path d=\"m5 12 5 5 9-10\"/>","billet":"<rect x=\"3\" y=\"6\" width=\"18\" height=\"12\" rx=\"2\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>","calendrier":"<rect x=\"4\" y=\"5\" width=\"16\" height=\"15\" rx=\"2\"/><path d=\"M4 10h16M9 3v4M15 3v4\"/>","horloge":"<circle cx=\"12\" cy=\"12\" r=\"8\"/><path d=\"M12 8v4l3 2\"/>","maison":"<path d=\"M4 20V9l8-5 8 5v11M9 20v-6h6v6\"/>","cadenas":"<rect x=\"5\" y=\"11\" width=\"14\" height=\"9\" rx=\"2\"/><path d=\"M8 11V8a4 4 0 0 1 8 0v3\"/>","interdit":"<circle cx=\"12\" cy=\"12\" r=\"8\"/><path d=\"M7 17 17 7\"/>","fleche":"<path d=\"M5 12h14m-6-6 6 6-6 6\"/>","question":"<path d=\"M9 9a3 3 0 1 1 4 2.8c-.6.3-1 .9-1 1.6V15M12 18v1\"/>","retour":"<path d=\"M4 12a8 8 0 1 0 3-6.2M4 4v4h4\"/>","ouvert":"<rect x=\"5\" y=\"11\" width=\"14\" height=\"9\" rx=\"2\"/><path d=\"M8 11V8a4 4 0 0 1 8 0\"/>"};
 function icone(n){return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONES[n]||ICONES.liste}</svg>`;}
-const ICONES_RESULTATS={FICHE_REMISE:'coche',A_PAYE:'billet',PROMESSE:'calendrier',ABSENT:'horloge',TROUVEE_FERMEE:'maison',FERMETURE_OTR:'cadenas',REFUS:'interdit',DEMENAGE:'fleche',INTROUVABLE:'question',REPORTE:'retour',REOUVERTURE:'ouvert'};
+const ICONES_RESULTATS={FICHE_REMISE:'coche',ACTE_REMIS:'enveloppe',A_PAYE:'billet',PROMESSE:'calendrier',ABSENT:'horloge',TROUVEE_FERMEE:'maison',FERMETURE_OTR:'cadenas',REFUS:'interdit',DEMENAGE:'fleche',INTROUVABLE:'question',REPORTE:'retour',REOUVERTURE:'ouvert'};
 const jour=()=>dateLocale().slice(0,10);
 let db,session,equipe,recenses=[],fiches=[],onglet='Recensement',edition=null,point=null,gpsEnCours=null,proposition=null,rueSource='AGENT',rueOrigine='',envoi=false,sauvegarde=false,choixJour=false;
 let brouillonId=nouvelId(),rafraichissement=null;
 const rueCarte=carteRues();
 let simuler,gpsFactice;
+let ajoutsParCode={},ajouts=[];
 let connus=[],indexRecherche=[],lotGarde={lot:[],pris:[],cadenas_poses:[]},actions=[],depart=null,ordre=[],veille=null,dernierePosition=0,visiteEnCours=null,actionsEnvoi=false;
 function reindexer(){indexRecherche=indexerRecherche(recenses,connus,fiches.filter(f=>f.agent===session?.agent));}
+async function garderCadenas(r){if(Array.isArray(r.cadenas_poses)){lotGarde={...lotGarde,cadenas_poses:r.cadenas_poses};await db.garder('lot',lotGarde);}}
 function visitesLocales(){return fiches.filter(f=>f.type==='TOURNEE');}
 function lotAffiche(){const r=appliquerActions(lotGarde.lot,lotGarde.pris,actions,session.agent,lotGarde.date_lot);r.lot=r.lot.map(f=>appliquerVisitesLocales(f,visitesLocales().filter(v=>v.nif===f.nif&&v.lot===lotGarde.date_lot)));return r;}
 function arreterVeille(){if(veille!==null)(factice?gpsFactice:navigator.geolocation)?.clearWatch(veille);veille=null;}
@@ -55,15 +57,15 @@ function afficherConnexion(){
   $('connexion').onsubmit=async e=>{e.preventDefault();const bouton=e.submitter;bouton.disabled=true;try{
     if(!enLigne())throw new Error('Il faut du réseau pour la première ouverture.');
     const code=$('code').value;const r=await appel('bonjour',{code});
-    session={...r,code};await db.garder('session',session);await chargerFiches();await choisirEquipe();rafraichir().catch(erreur);
+    session={...r,code};await garderCadenas(r);await db.garder('session',session);await chargerFiches();await choisirEquipe();rafraichir().catch(erreur);
   }catch(e){erreur(e);}finally{bouton.disabled=false;}};
 }
-async function chargerFiches(){fiches=await db.fiches();reindexer();compteur();}
+async function chargerFiches(){ajoutsParCode=await db.lire('ajouts')||{};ajouts=ajoutsParCode[session?.code]||[];fiches=await db.fiches();reindexer();compteur();}
 function protegerBrouillon(){return !$('fiche')||!$('fiche').dataset.modifie||confirm('Quitter cette fiche sans enregistrer ?');}
 async function choisirEquipe(){
   arreterGPS();arreterVeille();choixJour=true;entete();actualiserOnglets();
   $('contenu').innerHTML='<h1>Aujourd’hui, je suis dans :</h1><div id="equipes" class="equipes"></div><div id="acces-bureau" class="actions"></div>';
-  for(const e of session.equipes||[]){const b=document.createElement('button');b.textContent=e.nom;b.onclick=async()=>{try{equipe={nom:e.nom,date:jour()};await db.garder('equipe',equipe);choixJour=false;onglet='Recensement';edition=null;afficher();envoyer();}catch(e){erreur(e);}};$('equipes').append(b);}
+  for(const e of session.equipes||[]){const b=document.createElement('button');b.textContent=e.nom;b.onclick=async()=>{try{equipe={nom:e.nom,date:jour()};await db.garder('equipe',equipe);choixJour=false;onglet='Recensement';edition=null;afficher();await rafraichir();envoyer();}catch(e){erreur(e);}};$('equipes').append(b);}
   for(const [nom,autorise] of [['Gestion',session.peut_gerer],['Extraire',session.peut_extraire]]){if(!droit(autorise))continue;const b=document.createElement('button');b.textContent=nom;b.onclick=()=>{choixJour=false;onglet=nom;edition=null;afficher();};$('acces-bureau').append(b);}
   if(!session.equipes?.length)$('equipes').textContent='Aucune équipe active. Contactez le gestionnaire.';
 }
@@ -82,7 +84,7 @@ function afficher(){
 }
 function actualiserOnglets(){
   $('onglets').replaceChildren();
-  const onglets=[...(jourCorrect()&&!choixJour?[...(droit(equipeActuelle()?.fait_la_tournee)?['Tournée']:[]),'Recensement','Recherche']:['Choisir l’équipe']),...(droit(session.peut_extraire)?['Extraire']:[]),...(droit(session.peut_gerer)?['Gestion']:[])];
+  const onglets=[...(jourCorrect()&&!choixJour?['Tournée','Recensement','Recherche']:['Choisir l’équipe']),...(droit(session.peut_extraire)?['Extraire']:[]),...(droit(session.peut_gerer)?['Gestion']:[])];
   if(!onglets.includes(onglet))onglet='Recensement';
   for(const nom of onglets){const b=document.createElement('button');b.innerHTML=icone(({Tournée:'liste',Recensement:'plus',Recherche:'loupe',Extraire:'extraire',Gestion:'gestion'})[nom])+`<span>${echapper(({Recensement:'Recenser',Recherche:'Chercher'})[nom]||nom)}</span>`;if(nom===onglet&&!choixJour)b.setAttribute('aria-current','page');b.onclick=()=>{if(!protegerBrouillon())return;if(nom==='Choisir l’équipe'){choisirEquipe().catch(erreur);return;}edition=null;onglet=nom;afficher();};$('onglets').append(b);}
 }
@@ -211,7 +213,7 @@ async function envoyer(){
   try{
     await envoyerActions();
     await chargerFiches();const file=fiches.filter(f=>!f.envoyee&&f.agent===session.agent&&f.id!==edition?.id);if(!file.length)return;
-    const r=await appel('envoyer',{fiches:file.map(({envoyee,refus,...f})=>{if(f.type==='TOURNEE'){const {raison,...visite}=f;return visite;}return f;})});
+    const r=await appel('envoyer',{fiches:file.map(({envoyee,refus,cle,...f})=>f)});
     // Le prochain lot reçu fera foi pour les résultats déjà acquittés, y compris
     // ceux d'un autre téléphone. Garder entre-temps l'état affiché hors ligne.
     lotGarde={...lotGarde,...lotAffiche()};await db.garder('lot',lotGarde);
@@ -224,7 +226,7 @@ async function rafraichir(){
   if(!session||!enLigne())return;
   if(rafraichissement)return rafraichissement;
   rafraichissement=(async()=>{
-    const ancien=session;const r=await appel('bonjour');session={...r,code:ancien.code};await db.garder('session',session);
+    const ancien=session;const r=await appel('bonjour');session={...r,code:ancien.code};await garderCadenas(r);await db.garder('session',session);
     if(!jourCorrect()&&!accesBureau()&&!$('fiche')?.dataset.modifie)await choisirEquipe();else{
       entete();if(!choixJour){const avant=onglet;actualiserOnglets();if(avant!==onglet)afficher();}
     }
@@ -236,7 +238,7 @@ async function rafraichir(){
       try{const r=await appel('connus',{version:await db.lire('connus_version')||''});if(!r.inchange){connus=lireConnus(r);await db.garder('connus',connus);}await db.garder('connus_version',r.version);}catch(e){erreur(e);}
     }
     reindexer();
-    const nouveau=await appel('lot');lotGarde=nouveau;await db.garder('lot',nouveau);
+    if(droit(equipeActuelle()?.fait_la_tournee)){const nouveau=await appel('lot');lotGarde=nouveau;await db.garder('lot',nouveau);}
     if(!$('fiche')?.dataset.modifie){if(onglet==='Recherche')afficherRecherche();if(onglet==='Tournée'&&!visiteEnCours)afficherTournee();}
   })();
   try{await rafraichissement;}finally{rafraichissement=null;}
@@ -275,23 +277,40 @@ async function gestion(){
 }
 function lienItineraire(f){return pointValide(f)?`<a class="bouton" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${f.lat},${f.lon}&travelmode=walking">Itinéraire</a>`:'';}
 function sourceFiche(f){const d=(f.date||'').slice(0,10).split('-');return `${f.source||'Application'}${d.length===3?`${f.source==='Application'?', ':', visite du '}${d[2]}/${d[1]}`:''}`;}
+async function garderAjouts(liste){ajouts=liste;ajoutsParCode[session.code]=liste;await db.garder('ajouts',ajoutsParCode);}
+function boutonAjout(f){
+  const b=document.createElement('button'),deja=ajouts.some(a=>a.cle===cleAjout(f));b.type='button';b.className='ajouter-tournee';b.textContent=deja?'Dans ma tournée':'Ajouter à ma tournée';b.disabled=deja||!texte(f.raison)&&!texte(f.responsable);
+  b.onclick=async()=>{try{
+    if(droit(equipeActuelle()?.fait_la_tournee)&&chiffres(f.nif)&&lotAffiche().lot.some(l=>l.nif===chiffres(f.nif)&&l.etat!=='RETIRE')){message('Déjà dans le lot du jour : prenez-le dans le lot.');return;}
+    await garderAjouts(ajouterAjout(ajouts,f));b.textContent='Dans ma tournée';b.disabled=true;message('Ajout enregistré dans votre tournée.');
+  }catch(e){erreur(e);}};return b;
+}
+function afficherAjouts(){
+  const zone=$('mes-ajouts');zone.replaceChildren();
+  if(!ajouts.length)zone.textContent='Aucun ajout. Dans Chercher, touchez « Ajouter à ma tournée ».';
+  for(const a of ajouts){const etat=etatAjout(a,visitesLocales(),session.agent),f={...a,...etat,origine:'LIBRE'},div=document.createElement('article');div.className='carte lot-tuile'+(etat.etat==='TERMINE'?' terminee':'');div.innerHTML=`<strong>${echapper(a.raison||a.responsable)}</strong><p class="sous">${echapper(a.rue)} · ${echapper(a.nif?'NIF '+a.nif:'sans NIF')}</p><p class="sous">${echapper(RESULTATS[etat.dernier_resultat]?.[0]||'À visiter')}</p><div class="actions"><button class="principal">Noter</button><button>Retirer</button></div>`;
+    const [noter,retirer]=div.querySelectorAll('button');noter.onclick=()=>ouvrirVisite(f);retirer.onclick=async()=>{if(!confirm('Retirer cet ajout de votre tournée ?'))return;try{await garderAjouts(ajouts.filter(x=>x.cle!==a.cle));afficherTournee();}catch(e){erreur(e);}};zone.append(div);
+  }
+  $('retirer-termines').disabled=!ajouts.some(a=>etatAjout(a,visitesLocales(),session.agent).etat==='TERMINE');
+  $('retirer-termines').onclick=async()=>{if(!confirm('Retirer les ajouts terminés ?'))return;try{await garderAjouts(ajouts.filter(a=>etatAjout(a,visitesLocales(),session.agent).etat!=='TERMINE'));afficherTournee();}catch(e){erreur(e);}};
+}
 function afficherRecherche(){
   visiteEnCours=null;
   const saisie=$('recherche')?.value||'';
   $('contenu').innerHTML='<h1>Chercher</h1><div class="carte"><label for="recherche">NIF, nom, téléphone, activité ou rue</label><input id="recherche" type="search" autocomplete="off"><p id="total-recherche" role="status"></p></div><div id="resultats-recherche"></div>';
   $('recherche').value=saisie;
-  const rendre=()=>{const r=chercher(indexRecherche,$('recherche').value);$('total-recherche').textContent=`${r.total} résultat(s)${r.total>50?' · 50 affichés':''}`;const zone=$('resultats-recherche');zone.replaceChildren();for(const f of r.resultats){const b=document.createElement('button');b.className='carte resultat';b.innerHTML=`<span class="ligne-nom"><strong>${echapper(f.raison||f.responsable||f.nif)}</strong>${pointValide(depart)&&pointValide(f)?`<span class="distance">${Math.round(distance(depart,f))} m</span>`:''}</span><span class="sous">${echapper([f.rue,f.immeuble,f.niveau,f.porte].filter(Boolean).join(' · '))}</span><span class="sous">${echapper([f.nif&&'NIF '+f.nif,f.telephone].filter(Boolean).join(' · '))}</span><span class="source">${echapper(sourceFiche(f))}</span>`;b.onclick=()=>detailRecherche(f);zone.append(b);}};
+  const rendre=()=>{const r=chercher(indexRecherche,$('recherche').value);$('total-recherche').textContent=`${r.total} résultat(s)${r.total>50?' · 50 affichés':''}`;const zone=$('resultats-recherche');zone.replaceChildren();for(const f of r.resultats){const b=document.createElement('button');b.className='carte resultat';b.innerHTML=`<span class="ligne-nom"><strong>${echapper(f.raison||f.responsable||f.nif)}</strong>${pointValide(depart)&&pointValide(f)?`<span class="distance">${Math.round(distance(depart,f))} m</span>`:''}</span><span class="sous">${echapper([f.rue,f.immeuble,f.niveau,f.porte].filter(Boolean).join(' · '))}</span><span class="sous">${echapper([f.nif&&'NIF '+f.nif,f.telephone].filter(Boolean).join(' · '))}</span><span class="source">${echapper(sourceFiche(f))}</span>`;b.onclick=()=>detailRecherche(f);const carte=document.createElement('article');carte.className='resultat-ajout';carte.append(b,boutonAjout(f));zone.append(carte);}};
   $('recherche').oninput=rendre;rendre();
   const geo=factice?gpsFactice:navigator.geolocation;
   if(geo){let id;const timer=setTimeout(()=>geo.clearWatch(id),10000);id=geo.watchPosition(p=>{const q={lat:p.coords.latitude,lon:p.coords.longitude};if(pointValide(q)){depart=q;if($('recherche'))rendre();geo.clearWatch(id);clearTimeout(timer);}},()=>{clearTimeout(timer);geo.clearWatch(id);},{enableHighAccuracy:false,maximumAge:0,timeout:10000});}
 }
 function detailRecherche(f){
   $('contenu').innerHTML=`<h1>${echapper(f.raison||f.responsable||f.nif)}</h1><p>${echapper(sourceFiche(f))}</p><dl class="carte">${['nif','responsable','telephone','activite','rue','immeuble','niveau','porte'].map(k=>`<dt>${({nif:'NIF',responsable:'Responsable',telephone:'Téléphone',activite:'Activité',rue:'Rue',immeuble:'Immeuble',niveau:'Niveau',porte:'Porte'})[k]}</dt><dd>${echapper(f[k])}</dd>`).join('')}</dl><div class="actions detail-actions">${lienItineraire(f)}<button id="mettre-a-jour" class="principal">Mettre à jour</button><button id="retour-recherche">Retour à la recherche</button></div>`;
-  $('retour-recherche').onclick=afficherRecherche;
+  $('retour-recherche').onclick=afficherRecherche;document.querySelector('.detail-actions').prepend(boutonAjout(f));
   $('mettre-a-jour').onclick=()=>{edition=null;onglet='Recensement';arreterGPS();actualiserOnglets();afficherRecensement(miseAJour(f));$('fiche').dataset.modifie='oui';};
 }
 async function envoyerActions(){
-  if(actionsEnvoi||!enLigne()||!session)return;actionsEnvoi=true;
+  if(actionsEnvoi||!enLigne()||!session||!droit(equipeActuelle()?.fait_la_tournee))return;actionsEnvoi=true;
   try{while(true){const a=actions.find(a=>a.agent===session.agent);if(!a)break;await appel(a.action,{equipe:a.equipe,nifs:a.nifs});
     // Conserver l'effet local jusqu'au prochain téléchargement réussi.
     const local=appliquerActions(lotGarde.lot,lotGarde.pris,[a],session.agent,lotGarde.date_lot);lotGarde={...lotGarde,...local};await db.garder('lot',lotGarde);
@@ -310,19 +329,26 @@ async function actionLot(action){
 }
 function afficherTournee(){
   arreterGPS();arreterVeille();visiteEnCours=null;
-  if(!jourCorrect()||!droit(equipeActuelle()?.fait_la_tournee))return;
-  const {lot,pris}=lotAffiche();
-  $('contenu').innerHTML=`<h1>Tournée</h1><p>Lot du ${echapper(lotGarde.date_lot?lotGarde.date_lot.split('-').reverse().join('/'):'jour non encore téléchargé')}${lotGarde.date_lot&&lotGarde.date_lot!==jour()?' · Dernier lot conservé hors ligne':''}</p><p>${actions.filter(a=>a.agent===session.agent).length} action(s) à envoyer</p><div class="chiffres-lot"><div class="carte"><strong>${lot.filter(f=>f.etat!=='RETIRE').length}</strong><span>dans le lot</span></div><div class="carte active"><strong>${lot.filter(f=>f.etat!=='RETIRE'&&pris.some(p=>p.nif===f.nif&&p.agent===session.agent)).length}</strong><span>à moi</span></div><div class="carte"><strong>${visitesActives(visitesLocales()).filter(v=>v.agent===session.agent&&v.date.slice(0,10)===jour()).length}</strong><span>faits</span></div></div><div id="arrivee" role="status"></div><h2>Le lot du jour</h2><div id="liste-lot"></div><div class="actions"><button id="prendre" class="principal">Je prends</button><button id="lacher">Lâcher</button><button id="retirer">Retirer de la liste</button></div><h2>Mon trajet</h2><button id="recalculer">Recalculer</button><div id="trajet"></div><h2>Résultats notés aujourd’hui</h2><div id="visites-jour"></div>`;
-  for(const f of lot.filter(f=>f.etat!=='RETIRE')){const p=pris.find(p=>p.nif===f.nif),div=document.createElement('article');div.className='carte lot-tuile'+(p?(p.agent===session.agent?' active':' autre'):'');div.innerHTML=`<div class="ligne-nom"><label><input type="checkbox" name="selection-lot" value="${echapper(f.nif)}">${echapper(f.raison||f.nif)}</label>${p?.agent===session.agent?'<span class="a-moi">À MOI</span>':''}</div><p class="sous">${echapper(f.adresse||f.rue||'')}${f.attente_jours>=1?' · attend '+Number(f.attente_jours)+' jour(s)':''}</p><p class="sous">${echapper(RESULTATS[f.dernier_resultat]?.[0]||f.dernier_resultat||'À visiter')}</p>${p&&p.agent!==session.agent?`<p class="pris-autre">Pris par ${echapper(p.agent)}</p>`:''}<div class="lot-bas"><span class="rar">${echapper(Number(f.rar||0).toLocaleString('fr-FR'))} <small>FCFA</small></span><button class="principal">Noter</button></div>`;div.querySelector('button').onclick=()=>ouvrirVisite(f);$('liste-lot').append(div);}
+  if(!jourCorrect())return;
+  const avecLot=droit(equipeActuelle()?.fait_la_tournee);
+  const {lot,pris}=avecLot?lotAffiche():{lot:[],pris:[]};
+  $('contenu').innerHTML=`<h1>Tournée</h1><p>Lot du ${echapper(lotGarde.date_lot?lotGarde.date_lot.split('-').reverse().join('/'):'jour non encore téléchargé')}${lotGarde.date_lot&&lotGarde.date_lot!==jour()?' · Dernier lot conservé hors ligne':''}</p><p>${actions.filter(a=>a.agent===session.agent).length} action(s) à envoyer</p><div class="chiffres-lot"><div class="carte"><strong>${lot.filter(f=>f.etat!=='RETIRE').length}</strong><span>dans le lot</span></div><div class="carte active"><strong>${lot.filter(f=>f.etat!=='RETIRE'&&pris.some(p=>p.nif===f.nif&&p.agent===session.agent)).length}</strong><span>à moi</span></div><div class="carte"><strong>${visitesActives(visitesLocales()).filter(v=>v.agent===session.agent&&v.date.slice(0,10)===jour()).length}</strong><span>faits</span></div></div><div id="arrivee" role="status"></div><h2>Le lot du jour</h2><div id="liste-lot"></div><div class="actions"><button id="prendre" class="principal">Je prends</button><button id="lacher">Lâcher</button><button id="retirer">Retirer de la liste</button></div><h2>Mes ajouts</h2><div id="mes-ajouts"></div><button id="retirer-termines">Retirer les terminés</button><h2>Mon trajet</h2><button id="recalculer">Recalculer</button><div id="trajet"></div><h2>Résultats notés aujourd’hui</h2><div id="visites-jour"></div>`;
+  for(const f of lot.filter(f=>f.etat!=='RETIRE')){const p=pris.find(p=>p.nif===f.nif),div=document.createElement('article');div.className='carte lot-tuile'+(p?(p.agent===session.agent?' active':' autre'):'');div.innerHTML=`<div class="ligne-nom"><label><input type="checkbox" name="selection-lot" value="${echapper(f.nif)}">${echapper(f.raison||f.responsable||f.nif)}</label>${p?.agent===session.agent?'<span class="a-moi">À MOI</span>':''}</div><p class="sous">${echapper(f.adresse||f.rue||'')}${f.attente_jours>=1?' · attend '+Number(f.attente_jours)+' jour(s)':''}</p><p class="sous">${echapper(RESULTATS[f.dernier_resultat]?.[0]||f.dernier_resultat||'À visiter')}</p>${p&&p.agent!==session.agent?`<p class="pris-autre">Pris par ${echapper(p.agent)}</p>`:''}<div class="lot-bas"><span class="rar">${echapper(Number(f.rar||0).toLocaleString('fr-FR'))} <small>FCFA</small></span><button class="principal">Noter</button></div>`;div.querySelector('button').onclick=()=>ouvrirVisite(f);$('liste-lot').append(div);}
   if(!lot.length)$('liste-lot').textContent='Aucun contribuable dans le lot conservé.';
   for(const a of ['prendre','lacher','retirer'])$(a).onclick=()=>actionLot(a).catch(erreur);
   $('recalculer').onclick=()=>recalculerTrajet().catch(erreur);
   for(const v of visitesActives(visitesLocales()).filter(v=>v.agent===session.agent&&v.date.slice(0,10)===jour())){const div=document.createElement('article');div.className='carte';div.textContent=`${v.raison||v.nif} · ${RESULTATS[v.resultat]?.[0]||v.resultat}${v.refus?' · Refus : '+v.refus:''} `;const b=document.createElement('button');b.textContent='Annuler ce résultat';b.onclick=async()=>{if(!confirm('Annuler ce résultat ?'))return;try{const f=annulation(v);await db.fiche(f);await chargerFiches();afficherTournee();envoyer();}catch(e){erreur(e);}};div.append(b);$('visites-jour').append(div);}
-  rendreTrajet();recalculerTrajet().catch(erreur);demarrerVeille();
+  if(!avecLot){
+    const chiffres=document.querySelector('.chiffres-lot');chiffres.innerHTML=`<div class="carte"><strong>${ajouts.length}</strong><span>ajouts</span></div><div class="carte"><strong>${visitesActives(visitesLocales()).filter(v=>v.agent===session.agent&&v.date.slice(0,10)===jour()).length}</strong><span>faits</span></div>`;
+    chiffres.classList.add('deux');
+    $('liste-lot').previousElementSibling.remove();$('liste-lot').remove();$('prendre').parentElement.remove();
+    for(const p of [...$('contenu').children].filter(e=>e.tagName==='P'))p.remove();
+  }
+  afficherAjouts();rendreTrajet();recalculerTrajet().catch(erreur);demarrerVeille();
 }
 function rendreTrajet(){
-  if(!$('trajet'))return;const r=lotAffiche(),m=mesPoints(r.lot,r.pris,session.agent);ordre=trajet(depart,m.points);
-  $('trajet').innerHTML=`${!pointValide(depart)?'<p>Position actuelle nécessaire pour calculer le trajet.</p>':''}<ol>${ordre.map(f=>`<li>${echapper(f.raison||f.nif)}</li>`).join('')}</ol>${pointValide(depart)?liensMaps(depart,ordre,reglage('MAPS_ETAPES')).map((l,i)=>`<p><a class="bouton" href="${echapper(l)}" target="_blank" rel="noopener">Itinéraire · partie ${i+1}</a></p>`).join(''):''}<h3>À vérifier</h3>${m.aVerifier.map(f=>`<p>${echapper(f.raison||f.nif)} · GPS absent ou imprécis</p>`).join('')||'<p>Aucun.</p>'}`;
+  if(!$('trajet'))return;const r=lotAffiche(),m=mesPoints(droit(equipeActuelle()?.fait_la_tournee)?r.lot:[],r.pris,session.agent,ajouts,visitesLocales());ordre=trajet(depart,m.points);
+  $('trajet').innerHTML=`${!pointValide(depart)?'<p>Position actuelle nécessaire pour calculer le trajet.</p>':''}<ol>${ordre.map(f=>`<li>${echapper(f.raison||f.responsable||f.nif)}</li>`).join('')}</ol>${pointValide(depart)?liensMaps(depart,ordre,reglage('MAPS_ETAPES')).map((l,i)=>`<p><a class="bouton" href="${echapper(l)}" target="_blank" rel="noopener">Itinéraire · partie ${i+1}</a></p>`).join(''):''}<h3>À vérifier</h3>${m.aVerifier.map(f=>`<p>${echapper(f.raison||f.responsable||f.nif)} · GPS absent ou imprécis</p>`).join('')||'<p>Aucun.</p>'}`;
 }
 async function recalculerTrajet(){
   const geo=factice?gpsFactice:navigator.geolocation;if(!geo){depart=null;rendreTrajet();return;}
@@ -331,18 +357,18 @@ async function recalculerTrajet(){
 }
 function demarrerVeille(){
   const geo=factice?gpsFactice:navigator.geolocation;if(!geo)return;
-  veille=geo.watchPosition(p=>{if(Date.now()-dernierePosition<30000)return;dernierePosition=Date.now();const q={lat:p.coords.latitude,lon:p.coords.longitude};if(!pointValide(q)||!$('arrivee'))return;const f=ordre.find(f=>distance(q,f)<reglage('DIST_ARRIVE_M'));$('arrivee').replaceChildren();if(f){const b=document.createElement('button');b.className='principal';b.textContent=`Arrivé chez ${f.raison||f.nif} ?`;b.onclick=()=>ouvrirVisite(f);$('arrivee').append(b);}},()=>{},{enableHighAccuracy:false,maximumAge:0,timeout:30000});
+  veille=geo.watchPosition(p=>{if(Date.now()-dernierePosition<30000)return;dernierePosition=Date.now();const q={lat:p.coords.latitude,lon:p.coords.longitude};if(!pointValide(q)||!$('arrivee'))return;const f=ordre.find(f=>distance(q,f)<reglage('DIST_ARRIVE_M'));$('arrivee').replaceChildren();if(f){const b=document.createElement('button');b.className='principal';b.textContent=`Arrivé chez ${f.raison||f.responsable||f.nif} ?`;b.onclick=()=>ouvrirVisite(f);$('arrivee').append(b);}},()=>{},{enableHighAccuracy:false,maximumAge:0,timeout:30000});
 }
 function ouvrirVisite(f){
   arreterGPS();arreterVeille();visiteEnCours=f;point=null;brouillonId=nouvelId();const id=brouillonId;
-  $('contenu').innerHTML=`<button type="button" id="retour-lot" class="retour-lot">← Retour au lot</button><div class="carte"><h1>${echapper(f.raison||f.nif)}</h1><p>${echapper(f.adresse||f.rue||'')} · <b class="distance">${echapper(Number(f.rar||0).toLocaleString('fr-FR'))} FCFA</b></p></div><form id="fiche" novalidate><h2>Résultat de la visite</h2><div id="boutons-resultats" class="actions"></div><input type="hidden" id="resultat" name="resultat"><div id="champs-visite" class="carte"></div><section class="carte gps-tuile"><h2>GPS sur place</h2><p id="gps-etat" role="status"></p><button type="button" class="principal" id="garder-gps" disabled>Garder ce point</button><button type="button" id="reprendre-gps">Reprendre le GPS</button></section><div id="erreurs" role="alert" tabindex="-1"></div><div class="actions enregistrement"><button class="principal" id="enregistrer-visite">Enregistrer le résultat</button></div></form>`;
+  $('contenu').innerHTML=`<button type="button" id="retour-lot" class="retour-lot">← Retour à la tournée</button><div class="carte"><h1>${echapper(f.raison||f.responsable||f.nif)}</h1><p>${echapper(f.adresse||f.rue||'')} · <b class="distance">${f.origine==='LIBRE'?'':echapper(Number(f.rar||0).toLocaleString('fr-FR'))+' FCFA'}</b></p></div><form id="fiche" novalidate><h2>Résultat de la visite</h2><div id="boutons-resultats" class="actions"></div><input type="hidden" id="resultat" name="resultat"><div id="champs-visite" class="carte"></div><section class="carte gps-tuile"><h2>GPS sur place</h2><p id="gps-etat" role="status"></p><button type="button" class="principal" id="garder-gps" disabled>Garder ce point</button><button type="button" id="reprendre-gps">Reprendre le GPS</button></section><div id="erreurs" role="alert" tabindex="-1"></div><div class="actions enregistrement"><button class="principal" id="enregistrer-visite">Enregistrer le résultat</button></div></form>`;
   $('fiche').oninput=()=>{$('fiche').dataset.modifie='oui';};
-  for(const code of resultatsVisibles(session.reglages||{})){const b=document.createElement('button');b.type='button';b.innerHTML=icone(ICONES_RESULTATS[code])+`<span>${echapper(RESULTATS[code][0])}</span>`;b.setAttribute('aria-pressed','false');b.onclick=()=>{const precedent=$('resultat').value;if(precedent&&precedent!==code&&!confirm('Changer le résultat et effacer ses champs ?'))return;$('resultat').value=code;$('fiche').dataset.modifie='oui';for(const x of $('boutons-resultats').children){x.classList.toggle('principal',x===b);x.setAttribute('aria-pressed',String(x===b));}$('champs-visite').innerHTML=(code==='FICHE_REMISE'?champ('remise_a','Remise à *',{choix:['RESPONSABLE','EMPLOYE','AUTRE']}):'')+(code==='A_PAYE'?champ('montant','Montant FCFA (facultatif)',{chiffres:true}):'')+(code==='PROMESSE'?'<label for="date_promise">Date promise *</label><input id="date_promise" name="date_promise" type="date">':'')+(['FERMETURE_OTR','REOUVERTURE'].includes(code)?champ('cadenas','Numéros de cadenas, séparés par ;',{aire:true}):'')+(code==='DEMENAGE'?champ('adresse','Nouvelle adresse (facultatif)'):'')+champ('observation',`Observation${['REFUS','INTROUVABLE'].includes(code)?' *':''}`,{aire:true});};$('boutons-resultats').append(b);}
+  for(const code of resultatsVisibles(session.reglages||{})){const b=document.createElement('button');b.type='button';b.innerHTML=icone(ICONES_RESULTATS[code])+`<span>${echapper(RESULTATS[code][0])}</span>`;b.setAttribute('aria-pressed','false');b.onclick=()=>{const precedent=$('resultat').value;if(precedent&&precedent!==code&&!confirm('Changer le résultat et effacer ses champs ?'))return;$('resultat').value=code;$('fiche').dataset.modifie='oui';for(const x of $('boutons-resultats').children){x.classList.toggle('principal',x===b);x.setAttribute('aria-pressed',String(x===b));}$('champs-visite').innerHTML=(['FICHE_REMISE','ACTE_REMIS'].includes(code)?champ('remise_a','Remise à *',{choix:['RESPONSABLE','EMPLOYE','AUTRE']}):'')+(code==='ACTE_REMIS'?'<h3>Acte remis</h3><fieldset><legend>Actes remis *</legend>'+[['AMR','AMR'],['MED','Mise en demeure'],['INVITATION','Invitation'],['AVIS','Avis'],['AUTRE','Autre']].map(([v,l])=>`<label><input type="checkbox" name="actes" value="${v}">${l}</label>`).join('')+'</fieldset>'+champ('acte_autre','Précisez si Autre'):'')+(code==='A_PAYE'?champ('montant','Montant FCFA (facultatif)',{chiffres:true}):'')+(code==='PROMESSE'?'<label for="date_promise">Date promise *</label><input id="date_promise" name="date_promise" type="date">':'')+(['FERMETURE_OTR','REOUVERTURE'].includes(code)?champ('cadenas','Numéros de cadenas, séparés par ;',{aire:true}):'')+(code==='DEMENAGE'?champ('adresse','Nouvelle adresse (facultatif)'):'')+champ('observation',`Observation${['REFUS','INTROUVABLE'].includes(code)?' *':''}`,{aire:true});};$('boutons-resultats').append(b);}
   const gps=async()=>{arreterGPS();point=null;afficherPoint();const t=ecouterGPS({...(factice?{geolocalisation:gpsFactice}:{}),objectif:reglage('GPS_OBJECTIF_M'),affiner:reglage('GPS_AFFINER_S'),duree:reglage('GPS_DUREE_S'),surMesure:(p,note)=>{if(id===brouillonId&&visiteEnCours){point=p;afficherPoint(note);}}});gpsEnCours=t;const r=await t.promesse;if(gpsEnCours!==t)return;gpsEnCours=null;point=r.point;afficherPoint(r.raison);};
   $('garder-gps').onclick=()=>gpsEnCours?.stop();$('reprendre-gps').onclick=()=>gps().catch(erreur);$('retour-lot').onclick=()=>{if(protegerBrouillon())afficherTournee();};
-  $('fiche').onsubmit=async e=>{e.preventDefault();if(sauvegarde||envoi)return;if(!jourCorrect()||!droit(equipeActuelle()?.fait_la_tournee)){message('Choisissez une équipe autorisée pour cette journée.');return;}arreterGPS();
+  $('fiche').onsubmit=async e=>{e.preventDefault();if(sauvegarde||envoi)return;if(!jourCorrect()||(f.origine!=='LIBRE'&&!droit(equipeActuelle()?.fait_la_tournee))){message('Choisissez une équipe autorisée pour cette journée.');return;}arreterGPS();
     const valeurs=Object.fromEntries(new FormData($('fiche'))),v={};for(const [k,x]of Object.entries(valeurs))v[k]=texte(x);
-    Object.assign(v,{id,type:'TOURNEE',date:dateLocale(),agent:session.agent,equipe:equipe.nom,nif:f.nif,raison:f.raison,lot:lotGarde.date_lot,cadenas:numeros(v.cadenas),gps:point?(point.precision<=reglage('GPS_SEUIL_M')?'BON':'IMPRECIS'):'AUCUN'});
+    Object.assign(v,{id,type:'TOURNEE',date:dateLocale(),agent:session.agent,equipe:equipe.nom,cle:f.cle,nif:f.nif||'',raison:f.raison||f.responsable||'',origine:f.origine==='LIBRE'?'LIBRE':'LOT',fiche_id:f.fiche_id||'',lot:f.origine==='LIBRE'?'':lotGarde.date_lot,actes:new FormData($('fiche')).getAll('actes'),cadenas:numeros(v.cadenas),gps:point?(point.precision<=reglage('GPS_SEUIL_M')?'BON':'IMPRECIS'):'AUCUN'});
     if(v.montant!=='')v.montant=v.montant==null?'':Number(v.montant);if(point)Object.assign(v,{lat:Number(point.lat.toFixed(7)),lon:Number(point.lon.toFixed(7)),precision:Math.round(point.precision)});
     const erreurs=validerVisite(v);if(erreurs.length){$('erreurs').textContent=erreurs.join('\n');$('erreurs').focus();return;}
     let loc=localisation(v.resultat,f,point,undefined,reglage('DIST_CONFIRME_M'));if(loc===null)loc=localisation(v.resultat,f,point,confirm('Le contribuable est-il bien ici ?'),reglage('DIST_CONFIRME_M'));v.localisation=loc;

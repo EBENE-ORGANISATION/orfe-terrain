@@ -10,12 +10,18 @@ export function indexerRecherche(recenses,connus,locales=[]){
 }
 export function chercher(index,requete){const mots=normaliser(requete).split(/\s+/).filter(Boolean).map(m=>/^[\d()+.-]+$/.test(m)?chiffres(m):m).filter(Boolean),resultats=[];let total=0;for(const x of index)if(mots.every(m=>x.texte.includes(m))){total++;if(resultats.length<50)resultats.push(x.fiche);}return {total,resultats};}
 export function miseAJour(f,id=nouvelId()) {const r={id,type:'RECENSEMENT',gps:'AUCUN',immatricule:chiffres(f.nif)?'OUI':'NE SAIT PAS'};for(const k of ['nif','raison','responsable','telephone','activite','rue','immeuble','niveau','porte'])r[k]=f[k]||'';return r;}
-export const RESULTATS={FICHE_REMISE:['Fiche remise',true,true],A_PAYE:['A payé (preuve vue)',true,true],PROMESSE:['Promesse de paiement',true,true],ABSENT:['Absent, à repasser',false,false],TROUVEE_FERMEE:['Trouvée fermée',false,false],FERMETURE_OTR:['Fermeture par l’OTR',true,true],REFUS:['Refus de recevoir',true,true],DEMENAGE:['A déménagé',true,false],INTROUVABLE:['Introuvable',true,false],REPORTE:['Reporté',false,false],REOUVERTURE:['Réouverture',false,false]};
+export const RESULTATS={FICHE_REMISE:['Fiche remise',true,true],ACTE_REMIS:['Acte remis',true,true],A_PAYE:['A payé (preuve vue)',true,true],PROMESSE:['Promesse de paiement',true,true],ABSENT:['Absent, à repasser',false,false],TROUVEE_FERMEE:['Trouvée fermée',false,false],FERMETURE_OTR:['Fermeture par l’OTR',true,true],REFUS:['Refus de recevoir',true,true],DEMENAGE:['A déménagé',true,false],INTROUVABLE:['Introuvable',true,false],REPORTE:['Reporté',false,false],REOUVERTURE:['Réouverture',false,false]};
 export const resultatsVisibles=r=>Object.keys(RESULTATS).filter(k=>k!=='REOUVERTURE'||r.REOUVERTURE_VISIBLE==='OUI');
 export const numeros=v=>[...new Set((Array.isArray(v)?v:String(v||'').split(/[;,\n]/)).map(n=>texte(n).replace(/\s/g,'')).filter(Boolean))];
 export function localisation(resultat,connu,point,reponse,seuil=50){if(!RESULTATS[resultat]?.[2]||!pointValide(point))return '';if(!pointValide(connu))return 'NOUVELLE';if(distance(connu,point)<=seuil)return 'CONFIRMEE';return reponse===true?'CORRIGEE':reponse===false?'NON':null;}
-export function validerVisite(f){const e=[];for(const k of ['id','date','agent','equipe','nif','lot'])if(!f[k])e.push(`Renseignez ${k}.`);if(!RESULTATS[f.resultat])e.push('Résultat inconnu.');if(f.type!=='TOURNEE')e.push('Type incorrect.');if(f.annule==='OUI'){if(!f.annule_id)e.push('Visite à annuler manquante.');return e;}
-  if(f.resultat==='FICHE_REMISE'&&!['RESPONSABLE','EMPLOYE','AUTRE'].includes(f.remise_a))e.push('Choisissez à qui la fiche est remise.');
+export function validerVisite(f){const e=[];for(const k of ['id','date','agent','equipe',...(f.origine==='LIBRE'?[]:['nif','lot'])])if(!f[k])e.push(`Renseignez ${k}.`);if(!RESULTATS[f.resultat])e.push('Résultat inconnu.');if(f.type!=='TOURNEE')e.push('Type incorrect.');if(f.annule==='OUI'){if(!f.annule_id)e.push('Visite à annuler manquante.');return e;}
+  if(['FICHE_REMISE','ACTE_REMIS'].includes(f.resultat)&&!['RESPONSABLE','EMPLOYE','AUTRE'].includes(f.remise_a))e.push('Choisissez à qui la fiche est remise.');
+  if(f.origine==='LIBRE'&&(f.lot!==''||!/^\d*$/.test(f.nif||'')))e.push('Lot ou NIF invalide.');
+  if(f.origine==='LIBRE'&&!f.nif&&!texte(f.raison))e.push('Raison sociale obligatoire sans NIF');
+  if(f.resultat==='ACTE_REMIS'){
+    if(!Array.isArray(f.actes)||!f.actes.length||f.actes.some(a=>!['AMR','MED','INVITATION','AVIS','AUTRE'].includes(a)))e.push('Acte obligatoire');
+    if(f.actes?.includes('AUTRE')&&!texte(f.acte_autre))e.push("Précisez l'acte");
+  }
   if(f.resultat==='PROMESSE'&&!/^\d{4}-\d{2}-\d{2}$/.test(f.date_promise||''))e.push('Renseignez la date promise.');
   if(f.resultat==='FERMETURE_OTR'&&!numeros(f.cadenas).length)e.push('Renseignez les cadenas.');
   if(['REFUS','INTROUVABLE'].includes(f.resultat)&&!texte(f.observation))e.push('Renseignez l’observation.');
@@ -43,7 +49,7 @@ export function avertissementsCadenas(cadenas,nif,poses,visites=[]){
     if(v.resultat==='FERMETURE_OTR')etats.set(numero,{numero,nif:v.nif,raison:v.raison||v.nif,pose_le:v.date});
     if(v.resultat==='REOUVERTURE')etats.delete(numero);
   }
-  return numeros(cadenas).flatMap(n=>{const p=etats.get(n);return p&&p.nif!==nif?[p]:[];});
+  return numeros(cadenas).flatMap(n=>{const p=etats.get(n);return p&&(p.nif!==nif||!nif)?[p]:[];});
 }
 export function longueur(depart,points){let total=0,p=depart;for(const q of points){total+=distance(p,q);p=q;}return total;}
 export function trajet(depart,points){
@@ -56,6 +62,21 @@ export function trajet(depart,points){
     const c=longueur(depart,ordre);if(c<cout){meilleur=ordre;cout=c;}
   }return meilleur;
 }
-export function mesPoints(lot,pris,agent){const miens=new Set(pris.filter(p=>p.agent===agent).map(p=>p.nif));const liste=lot.filter(f=>miens.has(f.nif)&&!['TERMINE','RETIRE'].includes(f.etat));return {points:liste.filter(f=>pointValide(f)&&f.gps!=='IMPRECIS'),aVerifier:liste.filter(f=>!pointValide(f)||f.gps==='IMPRECIS')};}
+export function mesPoints(lot,pris,agent,ajouts=[],visites=[]){const miens=new Set(pris.filter(p=>p.agent===agent).map(p=>p.nif));const liste=[...lot.filter(f=>miens.has(f.nif)&&!['TERMINE','RETIRE'].includes(f.etat)),...ajouts.map(f=>({...f,...etatAjout(f,visites,agent),origine:'LIBRE'})).filter(f=>f.etat!=='TERMINE')];return {points:liste.filter(f=>pointValide(f)&&f.gps!=='IMPRECIS'),aVerifier:liste.filter(f=>!pointValide(f)||f.gps==='IMPRECIS')};}
 export function liensMaps(depart,points,etapes=3){const taille=Math.min(3,Math.max(0,Math.floor(Number(etapes)||0)))+1,liens=[];let origine=depart;const coord=p=>`${+Number(p.lat).toFixed(7)},${+Number(p.lon).toFixed(7)}`;for(let i=0;i<points.length;i+=taille){const partie=points.slice(i,i+taille),fin=dernier(partie);liens.push(`https://www.google.com/maps/dir/?api=1&origin=${coord(origine)}&destination=${coord(fin)}&waypoints=${partie.slice(0,-1).map(coord).join('|')}&travelmode=walking`);origine=fin;}return liens;}
 export function appliquerActions(lot,pris,actions,agent,date){lot=lot.map(f=>({...f}));pris=pris.map(p=>({...p}));for(const a of actions.filter(a=>a.date===date)){for(const nif of a.nifs){if(a.action==='retirer'){const f=lot.find(f=>f.nif===nif);if(f)f.etat='RETIRE';}else{pris=pris.filter(p=>p.nif!==nif);if(a.action==='prendre')pris.push({nif,equipe:a.equipe,agent:a.agent||agent,heure:a.heure});}}}return {lot,pris};}
+
+export function cleAjout(f){return chiffres(f.nif)?'N:'+chiffres(f.nif):(f.fiche_id||f.id)?'F:'+(f.fiche_id||f.id):'R:'+texte(f.raison||f.responsable)+'|'+texte(f.rue);}
+export function ajouterAjout(ajouts,f,quand=dateLocale()){
+  if(!texte(f.raison)&&!texte(f.responsable))return ajouts;
+  const cle=cleAjout(f);if(ajouts.some(a=>a.cle===cle))return ajouts;
+  const a={cle,nif:chiffres(f.nif),fiche_id:f.fiche_id||f.id||'',ajoute_le:quand};
+  for(const k of ['raison','responsable','telephone','activite','rue'])a[k]=texte(f[k]);
+  for(const k of ['lat','lon'])a[k]=f[k]??'';
+  if(f.gps)a.gps=f.gps;
+  return [...ajouts,a];
+}
+export function etatAjout(ajout,visites,agent){
+  const actives=visitesActives(visites.filter(v=>v.origine==='LIBRE'&&v.agent===agent&&(v.cle||cleAjout({...v,id:undefined}))===ajout.cle));
+  const v=dernier(actives);return {etat:RESULTATS[v?.resultat]?.[1]?'TERMINE':'A_VISITER',dernier_resultat:v?.resultat||'',...(v?.gps==='IMPRECIS'?{gps:'IMPRECIS'}:{})};
+}

@@ -1,10 +1,10 @@
 import {RESULTATS,numeros,normaliser} from './tournee.mjs';
 
 export const TITRES_REC='DATE;EQUIPE;AGENT;NIF;RAISON SOCIALE;NOM DU RESPONSABLE;TELEPHONE;ACTIVITE;RUE;IMMEUBLE;NIVEAU;NUMERO DE PORTE;ENSEIGNE;REGIME FISCAL;IMMATRICULE ?;LATITUDE;LONGITUDE;PRECISION GPS (M);GPS;OBSERVATION'.split(';');
-export const TITRES_TOUR='DATE;EQUIPE;AGENT;NIF;RAISON SOCIALE;RESULTAT;REMISE A;MONTANT;DATE PROMISE;CADENAS;NOUVELLE ADRESSE;OBSERVATION;LOCALISATION;GPS;LATITUDE;LONGITUDE'.split(';');
+export const TITRES_TOUR='DATE;EQUIPE;AGENT;NIF;RAISON SOCIALE;ORIGINE;RESULTAT;REMISE A;ACTE;MONTANT;DATE PROMISE;CADENAS;NOUVELLE ADRESSE;OBSERVATION;LOCALISATION;GPS;LATITUDE;LONGITUDE'.split(';');
 const libelle=v=>normaliser(v).replace(/[’]/g,"'");
 const nombre=v=>v!==''&&v!=null&&Number.isFinite(Number(v));
-const formes={FICHE_REMISE:['fiche remise','fiches remises'],A_PAYE:['paiement déclaré','paiements déclarés'],PROMESSE:['promesse','promesses'],ABSENT:['absent','absents'],TROUVEE_FERMEE:['boutique trouvée fermée','boutiques trouvées fermées'],FERMETURE_OTR:['fermeture','fermetures'],REFUS:['refus','refus'],DEMENAGE:['déménagement','déménagements'],INTROUVABLE:['introuvable','introuvables'],REPORTE:['report','reports'],REOUVERTURE:['réouverture','réouvertures']};
+const formes={FICHE_REMISE:['fiche remise','fiches remises'],ACTE_REMIS:['acte remis','actes remis'],A_PAYE:['paiement déclaré','paiements déclarés'],PROMESSE:['promesse','promesses'],ABSENT:['absent','absents'],TROUVEE_FERMEE:['boutique trouvée fermée','boutiques trouvées fermées'],FERMETURE_OTR:['fermeture','fermetures'],REFUS:['refus','refus'],DEMENAGE:['déménagement','déménagements'],INTROUVABLE:['introuvable','introuvables'],REPORTE:['report','reports'],REOUVERTURE:['réouverture','réouvertures']};
 // 1050000 -> « 1 050 000 », avec une espace ordinaire (Helvetica n'a pas l'espace fine).
 export const milliers=n=>typeof n==='number'?String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g,' '):n;
 export function resumeExtraction(quoi,titres,lignes){
@@ -22,6 +22,7 @@ export function resumeExtraction(quoi,titres,lignes){
     ajouter('Sans NIF',resume.sans_nif);
     for(const [n,c] of Object.entries(resume.gps))ajouter(`GPS ${n}`,c);
   }else{
+    resume.par_origine=par('ORIGINE');for(const [n,c] of resume.par_origine)ajouter(`Origine : ${n||'Lot'}`,c);
     resume.par_resultat=[];const morceaux=[];
     for(const [code,[titre]] of Object.entries(RESULTATS)){
       const rs=lignes.filter(r=>libelle(lire(r,'RESULTAT'))===libelle(titre));
@@ -84,8 +85,8 @@ export function creerPDF(extraction,resume,{agent,filtres={},quand},JsPDF=global
     [textePDF(`Extrait le ${dateFR(quand)} à ${quand.slice(11,16)} par ${agent}`)],
     [textePDF(resume.phrase)],...resume.chiffres.map(([t,n])=>[textePDF(`${t} : ${milliers(n)}`)])
   ]});
-  const colonnes=rec?['DATE','EQUIPE','AGENT','NIF','RAISON SOCIALE','NOM DU RESPONSABLE','TELEPHONE','ACTIVITE','RUE','IMMEUBLE','NIVEAU','GPS']:['DATE','AGENT','NIF','RAISON SOCIALE','RESULTAT','MONTANT','DATE PROMISE','CADENAS','OBSERVATION'];
-  const labels=rec?['Date','Équipe','Agent','NIF','Raison sociale','Responsable','Téléphone','Activité','Rue','Immeuble','Niveau','GPS']:['Date','Agent','NIF','Raison sociale','Résultat','Montant','Date promise','Cadenas','Observation'];
+  const colonnes=rec?['DATE','EQUIPE','AGENT','NIF','RAISON SOCIALE','NOM DU RESPONSABLE','TELEPHONE','ACTIVITE','RUE','IMMEUBLE','NIVEAU','GPS']:['DATE','AGENT','NIF','RAISON SOCIALE','ORIGINE','RESULTAT','ACTE','MONTANT','DATE PROMISE','CADENAS','OBSERVATION'];
+  const labels=rec?['Date','Équipe','Agent','NIF','Raison sociale','Responsable','Téléphone','Activité','Rue','Immeuble','Niveau','GPS']:['Date','Agent','NIF','Raison sociale','Origine','Résultat','Acte','Montant','Date promise','Cadenas','Observation'];
   doc.autoTable({startY:doc.lastAutoTable.finalY+5,head:[labels],body:lignes.map(r=>colonnes.map(t=>textePDF(r[titres.indexOf(t)]))),margin:{left:12,right:12,top:12,bottom:14},styles:{font:'helvetica',fontSize:7,cellPadding:1.5,overflow:'linebreak'},headStyles:{fillColor:[9,44,80]}});
   const pages=doc.getNumberOfPages();doc.setFontSize(8);
   for(let n=1;n<=pages;n++){doc.setPage(n);doc.text(`page ${n} / ${pages}`,285,204,{align:'right'});}
