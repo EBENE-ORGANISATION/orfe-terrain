@@ -67,7 +67,6 @@ export function creerExcel(extraction,resume,XLSX=globalThis.XLSX){
   feuille['!cols']=titres.map(t=>({wch:['OBSERVATION','RAISON SOCIALE','RUE','IMMEUBLE','NOUVELLE ADRESSE'].includes(t)?30:t==='DATE'?18:20}));
   titres.forEach((_,i)=>{feuille[XLSX.utils.encode_cell({r:0,c:i})].s={font:{bold:true}};});
   const livre=XLSX.utils.book_new();XLSX.utils.book_append_sheet(livre,feuille,quoi);
-  const synthese=XLSX.utils.aoa_to_sheet([['RÉSUMÉ','VALEUR'],...resume.chiffres]);synthese['!cols']=[{wch:48},{wch:20}];XLSX.utils.book_append_sheet(livre,synthese,'RESUME');
   return new Blob([XLSX.write(livre,{bookType:'xlsx',type:'array'})],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
 }
 export const textePDF=v=>String(v??'').replace(/[’‘]/g,"'").replace(/[«»“”]/g,'"').replace(/…/g,'...').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,'');
@@ -76,18 +75,11 @@ export function creerPDF(extraction,resume,{agent,filtres={},quand},JsPDF=global
   const {quoi,du,au,titres,lignes}=extraction,rec=quoi==='RECENSEMENT';
   const doc=new JsPDF({orientation:'landscape',unit:'mm',format:'a4'});
   doc.setFont('helvetica','normal');doc.setFontSize(15);
-  doc.text(`ORFE TERRAIN : ${rec?'Recensement':'Rapport de tournée'}`,12,15);
-  const choix=[['Équipe',filtres.equipe||'Toutes'],['Agent (contient)',filtres.agent||'Tous'],...(rec?[['Rue ou immeuble',filtres.rue||'Toutes'],['Sans NIF seulement',filtres.sans_nif?'Oui':'Non']]:[])];
-  // Autotable assure également la pagination des filtres et des résumés très longs.
-  doc.autoTable({startY:20,theme:'plain',margin:{left:12,right:12,bottom:14},styles:{font:'helvetica',fontSize:9,overflow:'linebreak'},body:[
-    [`Période : du ${dateFR(du)}${du===au?'':` au ${dateFR(au)}`}`],
-    [textePDF(choix.map(([t,v])=>`${t} : ${v}`).join(' ; '))],
-    [textePDF(`Extrait le ${dateFR(quand)} à ${quand.slice(11,16)} par ${agent}`)],
-    [textePDF(resume.phrase)],...resume.chiffres.map(([t,n])=>[textePDF(`${t} : ${milliers(n)}`)])
-  ]});
+  doc.text(textePDF(`ORFE TERRAIN : ${rec?'Recensement':'Rapport de tournée'} du ${dateFR(du)}${du===au?'':` au ${dateFR(au)}`}`),12,15);
+  doc.setFontSize(9);doc.text(textePDF(`Extrait le ${dateFR(quand)} à ${quand.slice(11,16)} par ${agent}`),12,21);
   const colonnes=rec?['DATE','EQUIPE','AGENT','NIF','RAISON SOCIALE','NOM DU RESPONSABLE','TELEPHONE','ACTIVITE','RUE','IMMEUBLE','NIVEAU','GPS']:['DATE','AGENT','NIF','RAISON SOCIALE','ORIGINE','RESULTAT','ACTE','MONTANT','DATE PROMISE','CADENAS','OBSERVATION'];
   const labels=rec?['Date','Équipe','Agent','NIF','Raison sociale','Responsable','Téléphone','Activité','Rue','Immeuble','Niveau','GPS']:['Date','Agent','NIF','Raison sociale','Origine','Résultat','Acte','Montant','Date promise','Cadenas','Observation'];
-  doc.autoTable({startY:doc.lastAutoTable.finalY+5,head:[labels],body:lignes.map(r=>colonnes.map(t=>textePDF(r[titres.indexOf(t)]))),margin:{left:12,right:12,top:12,bottom:14},styles:{font:'helvetica',fontSize:7,cellPadding:1.5,overflow:'linebreak'},headStyles:{fillColor:[9,44,80]}});
+  doc.autoTable({startY:26,head:[labels],body:lignes.map(r=>colonnes.map(t=>textePDF(r[titres.indexOf(t)]))),margin:{left:12,right:12,top:12,bottom:14},styles:{font:'helvetica',fontSize:7,cellPadding:1.5,overflow:'linebreak'},headStyles:{fillColor:[9,44,80]}});
   const pages=doc.getNumberOfPages();doc.setFontSize(8);
   for(let n=1;n<=pages;n++){doc.setPage(n);doc.text(`page ${n} / ${pages}`,285,204,{align:'right'});}
   return doc.output('blob');
