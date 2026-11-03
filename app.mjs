@@ -208,11 +208,21 @@ async function gestion(){
   }
   for(const e of session.equipes||[]){const form=document.createElement('form');form.className='carte';const id=`eq-${nouvelId()}`;form.innerHTML=`${champ(id,'Nom',{valeur:e.nom,obligatoire:true})}<label><input type="checkbox" name="tournee" ${droit(e.fait_la_tournee)?'checked':''}>Fait la tournée</label><button>Enregistrer l’équipe</button>`;branche(form,fd=>mutation('equipe_modifier',{nom:e.nom,nouveau_nom:texte(fd.get(id)),fait_la_tournee:oui(fd,'tournee')}));const b=document.createElement('button');b.type='button';b.textContent='Retirer l’équipe';b.onclick=async()=>{if(!confirm(`Retirer l’équipe ${e.nom} ?`))return;b.disabled=true;try{await mutation('equipe_retirer',{nom:e.nom});}catch(e){erreur(e);}finally{b.disabled=false;}};form.append(b);$('gestion-equipes').append(form);}
 }
+let enregistrement=null,rechargement=false;
+// Une nouvelle version prend la main dès qu’elle est prête, mais jamais pendant une saisie.
+function appliquerVersion(){
+  const attente=enregistrement?.waiting;
+  if(!attente||rechargement||!navigator.serviceWorker.controller||$('fiche')?.dataset.modifie)return;
+  rechargement=true;attente.postMessage('ACTIVER');
+}
+function chercherVersion(){if(enregistrement&&enLigne())enregistrement.update().catch(()=>{});appliquerVersion();}
 async function serviceWorker(){
   if(!('serviceWorker'in navigator))return;
   const reg=await navigator.serviceWorker.register('./sw.js',{scope:'./',updateViaCache:'none'});
-  // Pas de skipWaiting pendant une saisie. Le worker en attente ne prend la main qu’à une ouverture.
-  if(reg.waiting){await new Promise(resolve=>{navigator.serviceWorker.addEventListener('controllerchange',resolve,{once:true});reg.waiting.postMessage('ACTIVER');});location.reload();return;}
+  enregistrement=reg;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{if(rechargement)location.reload();});
+  if(reg.waiting){rechargement=true;reg.waiting.postMessage('ACTIVER');return;}
+  reg.addEventListener('updatefound',()=>{const neuf=reg.installing;neuf?.addEventListener('statechange',()=>{if(neuf.state==='installed')appliquerVersion();});});
   navigator.serviceWorker.addEventListener('message',e=>{if(e.data==='NOUVELLE_VERSION')message('Nouvelle version installée');});
   const ancienne=await db.lire('version');if(ancienne&&ancienne!==VERSION)message('Nouvelle version installée');await db.garder('version',VERSION);
 }
@@ -228,8 +238,8 @@ async function demarrer(){
 }
 window.addEventListener('online',()=>{entete();rafraichir().then(envoyer).catch(erreur);if(onglet==='Gestion')gestion().catch(erreur);});
 window.addEventListener('offline',()=>{entete();if(onglet==='Gestion')gestion().catch(erreur);});
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&session){if(!jourCorrect()&&!accesBureau()&&!$('fiche')?.dataset.modifie)choisirEquipe().catch(erreur);if(enLigne())rafraichir().then(envoyer).catch(erreur);}});
-setInterval(()=>{if(!session)return;if(!jourCorrect()&&!accesBureau()&&!choixJour&&!$('fiche')?.dataset.modifie)choisirEquipe().catch(erreur);if(enLigne())(db.lire('recenses_jour').then(d=>d!==jour()?rafraichir():null).then(envoyer)).catch(erreur);},120000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')chercherVersion();if(document.visibilityState==='visible'&&session){if(!jourCorrect()&&!accesBureau()&&!$('fiche')?.dataset.modifie)choisirEquipe().catch(erreur);if(enLigne())rafraichir().then(envoyer).catch(erreur);}});
+setInterval(()=>{chercherVersion();if(!session)return;if(!jourCorrect()&&!accesBureau()&&!choixJour&&!$('fiche')?.dataset.modifie)choisirEquipe().catch(erreur);if(enLigne())(db.lire('recenses_jour').then(d=>d!==jour()?rafraichir():null).then(envoyer)).catch(erreur);},120000);
 window.addEventListener('pagehide',arreterGPS);
 window.addEventListener('beforeunload',e=>{if($('fiche')?.dataset.modifie){e.preventDefault();e.returnValue='';}});
 demarrer().catch(e=>{erreur(e);if(!db)$('contenu').textContent='Le carnet local ne peut pas être ouvert. Autorisez le stockage dans ce navigateur, puis rechargez la page.';});

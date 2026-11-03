@@ -1,9 +1,13 @@
 // Worker classique pour Safari 15. Garder ce numéro identique à config.js (essai automatique).
-const VERSION='1.0.5';
+const VERSION='1.0.6';
 const CACHE=`orfe-terrain-${VERSION}`;
 const FICHIERS=['./','./index.html','./style.css','./app.mjs','./config.js','./metier.mjs','./gps.mjs','./transport.mjs','./stockage.mjs','./manifest.webmanifest','./icone-192.png','./icone-512.png'];
 self.addEventListener('install',e=>{e.waitUntil((async()=>{
-  const c=await caches.open(CACHE);await c.addAll(FICHIERS);
+  // Toujours le serveur, jamais le cache HTTP : sinon une version peut garder les fichiers de la précédente.
+  const c=await caches.open(CACHE);await c.addAll(FICHIERS.map(f=>new Request(f,{cache:'reload'})));
+  // Le serveur peut encore rendre l'ancien config.js quelques minutes : refuser, le navigateur réessaiera.
+  const conf=await (await c.match('./config.js')).text();
+  if(!conf.includes(`'${VERSION}'`)){await caches.delete(CACHE);throw new Error('Fichiers pas encore à jour');}
   // Facultatif sur l’hébergement réel ; nécessaire à l’essai factice hors ligne.
   try{await c.add('../essais/telephone/boite-factice.js');}catch{}
 })());});
