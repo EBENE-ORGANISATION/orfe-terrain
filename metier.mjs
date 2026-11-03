@@ -42,8 +42,19 @@ export function proposerRue(point,fiches) {
   return g?{rue:[...g.graphies].sort((a,b)=>b[1]-a[1])[0][0],nombre:g.nombre,source:'VOISINS'}:null;
 }
 export const CHOIX={immatricule:['OUI','NON','NE SAIT PAS'],niveau:['RDC','R+1','R+2','R+3','R+4','R+5','AUTRE'],enseigne:['OUI','NON'],regime:['TPU','REEL','CIME','DGE','NE SAIT PAS']};
+export const ACTIONS_REC={INVITATION:'Invitation remise',FERMETURE:'Fermeture (cadenas)',AUTRE:'Autre'};
+export function actionRecensement(f,clair=false) {
+  return Object.keys(ACTIONS_REC).filter(k=>f.action?.includes(k)).map(k=>(clair?ACTIONS_REC[k]:k)+(k==='AUTRE'?' : '+texte(f.action_autre):'')).join(' ; ');
+}
+export function erreurAction(f) {
+  if(f.action!==undefined&&(!Array.isArray(f.action)||f.action.some(k=>!Object.prototype.hasOwnProperty.call(ACTIONS_REC,k))))return 'Action inconnue';
+  if(f.action?.includes('AUTRE')&&!texte(f.action_autre))return "Précisez l'action";
+  return '';
+}
 export function validerFiche(f) {
   const erreurs=[];
+  if(!Array.isArray(f.action)||!f.action.length)erreurs.push('Cochez au moins une action.');
+  const actionErreur=erreurAction(f);if(actionErreur)erreurs.push(actionErreur+'.');
   for(const k of ['id','date','agent','equipe','activite','rue']) if(!texte(f[k])) erreurs.push(`Renseignez ${ {activite:"l’activité",rue:'la rue',equipe:"l’équipe"}[k]||k }.`);
   if(!texte(f.raison)&&!texte(f.responsable)) erreurs.push('Renseignez la raison sociale ou le responsable.');
   if(!CHOIX.immatricule.includes(f.immatricule)) erreurs.push('Choisissez « Immatriculé ? ».');

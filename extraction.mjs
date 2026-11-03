@@ -1,6 +1,6 @@
 import {RESULTATS,numeros,normaliser} from './tournee.mjs';
 
-export const TITRES_REC='DATE;EQUIPE;AGENT;NIF;RAISON SOCIALE;NOM DU RESPONSABLE;TELEPHONE;ACTIVITE;RUE;IMMEUBLE;NIVEAU;NUMERO DE PORTE;ENSEIGNE;REGIME FISCAL;IMMATRICULE ?;LATITUDE;LONGITUDE;PRECISION GPS (M);GPS;OBSERVATION'.split(';');
+export const TITRES_REC='DATE;EQUIPE;AGENT;NIF;RAISON SOCIALE;NOM DU RESPONSABLE;TELEPHONE;ACTIVITE;RUE;IMMEUBLE;NIVEAU;NUMERO DE PORTE;ENSEIGNE;REGIME FISCAL;IMMATRICULE ?;ACTION;LATITUDE;LONGITUDE;PRECISION GPS (M);GPS;OBSERVATION'.split(';');
 export const TITRES_TOUR='DATE;EQUIPE;AGENT;NIF;RAISON SOCIALE;ORIGINE;RESULTAT;REMISE A;ACTE;MONTANT;DATE PROMISE;CADENAS;NOUVELLE ADRESSE;OBSERVATION;LOCALISATION;GPS;LATITUDE;LONGITUDE'.split(';');
 const libelle=v=>normaliser(v).replace(/[’]/g,"'");
 const nombre=v=>v!==''&&v!=null&&Number.isFinite(Number(v));
@@ -77,7 +77,7 @@ export function creerPDF(extraction,resume,{agent,filtres={},quand},JsPDF=global
   doc.setFont('helvetica','normal');doc.setFontSize(15);
   doc.text(textePDF(`ORFE TERRAIN : ${rec?'Recensement':'Rapport de tournée'} du ${dateFR(du)}${du===au?'':` au ${dateFR(au)}`}`),12,15);
   doc.setFontSize(9);doc.text(textePDF(`Extrait le ${dateFR(quand)} à ${quand.slice(11,16)} par ${agent}`),12,21);
-  const colonnes=rec?['DATE','EQUIPE','AGENT','NIF','RAISON SOCIALE','NOM DU RESPONSABLE','TELEPHONE','ACTIVITE','RUE','IMMEUBLE','NIVEAU','GPS']:['DATE','AGENT','NIF','RAISON SOCIALE','ORIGINE','RESULTAT','ACTE','MONTANT','DATE PROMISE','CADENAS','OBSERVATION'];
+  const colonnes=rec?['DATE','EQUIPE','AGENT','NIF','RAISON SOCIALE','NOM DU RESPONSABLE','TELEPHONE','ACTIVITE','ACTION','RUE','IMMEUBLE','NIVEAU','GPS']:['DATE','AGENT','NIF','RAISON SOCIALE','ORIGINE','RESULTAT','ACTE','MONTANT','DATE PROMISE','CADENAS','OBSERVATION'];
   const labels=rec?['Date','Équipe','Agent','NIF','Raison sociale','Responsable','Téléphone','Activité','Rue','Immeuble','Niveau','GPS']:['Date','Agent','NIF','Raison sociale','Origine','Résultat','Acte','Montant','Date promise','Cadenas','Observation'];
   doc.autoTable({startY:26,head:[labels],body:lignes.map(r=>colonnes.map(t=>textePDF(r[titres.indexOf(t)]))),margin:{left:12,right:12,top:12,bottom:14},styles:{font:'helvetica',fontSize:7,cellPadding:1.5,overflow:'linebreak'},headStyles:{fillColor:[9,44,80]}});
   const pages=doc.getNumberOfPages();doc.setFontSize(8);
