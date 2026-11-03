@@ -4,7 +4,7 @@
   "lang":"fr",
   "start_url":"./",
   "scope":"./",
-  "display":"fullscreen",
+  "display":"standalone",
   "background_color":"#092c50",
   "theme_color":"#092c50",
   "icons":[
