@@ -19,7 +19,7 @@ export function meilleurPoint(a,b) {
   if(!pointValide(b)||!Number.isFinite(b.precision)||b.precision<0) return a;
   return !a||b.precision<a.precision ? b : a;
 }
-export const couleurPrecision=(m,seuil)=> m<=seuil?'vert':m<=3*seuil?'orange':'rouge';
+export const couleurPrecision=(m,seuil=15,objectif=4)=> m<=objectif?'vert':m<=seuil?'orange':'rouge';
 export function distance(a,b) {
   const rad=n=>n*Math.PI/180, dlat=rad(b.lat-a.lat), dlon=rad(b.lon-a.lon);
   const h=Math.sin(dlat/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dlon/2)**2;

@@ -1,5 +1,5 @@
 // Worker classique pour Safari 15. Garder ce numéro identique à config.js (essai automatique).
-const VERSION='1.0.2';
+const VERSION='1.0.3';
 const CACHE=`orfe-terrain-${VERSION}`;
 const FICHIERS=['./','./index.html','./style.css','./app.mjs','./config.js','./metier.mjs','./gps.mjs','./transport.mjs','./stockage.mjs','./manifest.webmanifest','./icone-192.png','./icone-512.png'];
 self.addEventListener('install',e=>{e.waitUntil((async()=>{

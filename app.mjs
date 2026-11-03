@@ -16,7 +16,7 @@ function message(t){$('message').textContent=t;}
 function erreur(e){message(e.name==='AbortError'?'La demande a pris trop de temps. Réessayez.':e.message||'Une erreur est survenue.');}
 function enLigne(){return navigator.onLine;}
 function droit(v){return v===true||v==='OUI';}
-function reglage(n){const v=Number(session?.reglages?.[n]);if(!Number.isFinite(v)||v<=0)throw new Error(`Le réglage ${n} doit être fourni par la boîte.`);return v;}
+function reglage(n){const defauts={GPS_OBJECTIF_M:4,GPS_AFFINER_S:10,GPS_DUREE_S:45,GPS_SEUIL_M:15};const v=Number(session?.reglages?.[n]??defauts[n]);if(!Number.isFinite(v)||v<=0)throw new Error(`Le réglage ${n} doit être fourni par la boîte.`);return v;}
 function equipeActuelle(){return session?.equipes?.find(e=>e.nom===equipe?.nom);}
 async function appel(action,donnees={}){
   const demande={action,code:session?.code,...donnees};
@@ -51,14 +51,16 @@ async function chargerFiches(){fiches=await db.fiches();compteur();}
 function protegerBrouillon(){return !$('fiche')||!$('fiche').dataset.modifie||confirm('Quitter cette fiche sans enregistrer ?');}
 async function choisirEquipe(){
   arreterGPS();choixJour=true;entete();$('onglets').replaceChildren();
-  $('contenu').innerHTML='<h1>Aujourd’hui, je suis dans :</h1><div id="equipes" class="equipes"></div>';
+  $('contenu').innerHTML='<h1>Aujourd’hui, je suis dans :</h1><div id="equipes" class="equipes"></div><div id="acces-bureau" class="actions"></div>';
   for(const e of session.equipes||[]){const b=document.createElement('button');b.textContent=e.nom;b.onclick=async()=>{try{equipe={nom:e.nom,date:jour()};await db.garder('equipe',equipe);choixJour=false;onglet='Recensement';edition=null;afficher();envoyer();}catch(e){erreur(e);}};$('equipes').append(b);}
+  for(const [nom,autorise] of [['Gestion',session.peut_gerer],['Extraire',session.peut_extraire]]){if(!droit(autorise))continue;const b=document.createElement('button');b.textContent=nom;b.onclick=()=>{choixJour=false;onglet=nom;edition=null;afficher();};$('acces-bureau').append(b);}
   if(!session.equipes?.length)$('equipes').textContent='Aucune équipe active. Contactez le gestionnaire.';
 }
+function accesBureau(){return onglet==='Gestion'&&droit(session?.peut_gerer)||onglet==='Extraire'&&droit(session?.peut_extraire);}
 function jourCorrect(){return equipe?.date===jour()&&!!equipeActuelle();}
 function afficher(){
   if(!session)return afficherConnexion();
-  if(!jourCorrect())return choisirEquipe();
+  if(!jourCorrect()&&!accesBureau())return choisirEquipe();
   entete();arreterGPS();actualiserOnglets();
   if(onglet==='Recensement')afficherRecensement();
   else if(onglet==='Gestion')gestion().catch(erreur);
@@ -66,9 +68,9 @@ function afficher(){
 }
 function actualiserOnglets(){
   $('onglets').replaceChildren();
-  const onglets=['Recensement',...(droit(equipeActuelle()?.fait_la_tournee)?['Tournée']:[]),'Recherche',...(droit(session.peut_extraire)?['Extraire']:[]),...(droit(session.peut_gerer)?['Gestion']:[])];
+  const onglets=[...(jourCorrect()?['Recensement',...(droit(equipeActuelle()?.fait_la_tournee)?['Tournée']:[]),'Recherche']:['Choisir l’équipe']),...(droit(session.peut_extraire)?['Extraire']:[]),...(droit(session.peut_gerer)?['Gestion']:[])];
   if(!onglets.includes(onglet))onglet='Recensement';
-  for(const nom of onglets){const b=document.createElement('button');b.textContent=nom;if(nom===onglet)b.setAttribute('aria-current','page');b.onclick=()=>{if(!protegerBrouillon())return;edition=null;onglet=nom;afficher();};$('onglets').append(b);}
+  for(const nom of onglets){const b=document.createElement('button');b.textContent=nom;if(nom===onglet)b.setAttribute('aria-current','page');b.onclick=()=>{if(!protegerBrouillon())return;if(nom==='Choisir l’équipe'){choisirEquipe().catch(erreur);return;}edition=null;onglet=nom;afficher();};$('onglets').append(b);}
 }
 function champ(nom,titre,options={}){
   const valeur=options.valeur??'';
@@ -80,12 +82,13 @@ function afficherRecensement(reprendre={}){
   const f=edition||reprendre;point=f.gps&&f.gps!=='AUCUN'?{lat:f.lat,lon:f.lon,precision:f.precision}:null;
   proposition=null;rueSource=f.rue_source||'AGENT';rueOrigine=f.rue||'';brouillonId=f.id||nouvelId();
   const niveauAutre=f.niveau&&!CHOIX.niveau.includes(f.niveau);
-  $('contenu').innerHTML=`<h1>${edition?'Corriger la fiche':'Recenser une boutique'}</h1><p class="aide">Les champs marqués * sont nécessaires. Raison sociale ou responsable : au moins un des deux.</p><form id="fiche" novalidate><div class="grille">${champ('immatricule','Immatriculé ? *',{choix:CHOIX.immatricule,valeur:f.immatricule,obligatoire:true})}${champ('nif','NIF',{valeur:f.nif,chiffres:true})}</div><p id="avertissement-nif" role="status"></p><div class="grille">${champ('raison','Raison sociale',{valeur:f.raison})}${champ('responsable','Nom du responsable',{valeur:f.responsable})}${champ('telephone','Téléphone',{valeur:f.telephone,chiffres:true})}${champ('activite','Activité *',{valeur:f.activite,obligatoire:true,suggestions:true})}</div><datalist id="activite-suggestions"></datalist><section aria-labelledby="titre-gps"><h2 id="titre-gps">Localisation</h2><p id="gps-etat" role="status"></p><button type="button" id="reprendre-gps">Reprendre le GPS</button><div id="rue-proposee"></div><p class="aide">Suggestion cartographique : © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>.</p></section><div class="grille">${champ('rue','Rue *',{valeur:f.rue,obligatoire:true,suggestions:true})}${champ('immeuble','Immeuble',{valeur:f.immeuble})}${champ('niveau','Niveau',{choix:CHOIX.niveau,valeur:niveauAutre?'AUTRE':f.niveau})}${champ('niveau_autre','Précisez le niveau',{valeur:niveauAutre?f.niveau:''})}${champ('porte','Numéro de porte',{valeur:f.porte})}${champ('enseigne','Y a-t-il une enseigne ?',{choix:CHOIX.enseigne,valeur:f.enseigne})}${champ('regime','Régime déclaré',{choix:CHOIX.regime,valeur:f.regime})}</div><datalist id="rue-suggestions"></datalist>${champ('observation','Observation',{valeur:f.observation,aire:true})}<div id="erreurs" role="alert" tabindex="-1"></div><div class="actions"><button class="principal" id="enregistrer">Enregistrer la fiche</button>${edition?'<button type="button" id="annuler-edition">Annuler la correction</button>':''}</div></form><details id="mes-fiches"><summary>Mes fiches du jour</summary><div id="liste-fiches"></div></details>`;
+  $('contenu').innerHTML=`<h1>${edition?'Corriger la fiche':'Recenser une boutique'}</h1><p class="aide">Les champs marqués * sont nécessaires. Raison sociale ou responsable : au moins un des deux.</p><form id="fiche" novalidate><div class="grille">${champ('immatricule','Immatriculé ? *',{choix:CHOIX.immatricule,valeur:f.immatricule,obligatoire:true})}${champ('nif','NIF',{valeur:f.nif,chiffres:true})}</div><p id="avertissement-nif" role="status"></p><div class="grille">${champ('raison','Raison sociale',{valeur:f.raison})}${champ('responsable','Nom du responsable',{valeur:f.responsable})}${champ('telephone','Téléphone',{valeur:f.telephone,chiffres:true})}${champ('activite','Activité *',{valeur:f.activite,obligatoire:true,suggestions:true})}</div><datalist id="activite-suggestions"></datalist><section aria-labelledby="titre-gps"><h2 id="titre-gps">Localisation</h2><p id="gps-etat" role="status"></p><button type="button" id="garder-gps" class="principal" disabled>Garder ce point</button><button type="button" id="reprendre-gps">Reprendre le GPS</button><div id="rue-proposee"></div><p class="aide">Suggestion cartographique : © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>.</p></section><div class="grille">${champ('rue','Rue *',{valeur:f.rue,obligatoire:true,suggestions:true})}${champ('immeuble','Immeuble',{valeur:f.immeuble})}${champ('niveau','Niveau',{choix:CHOIX.niveau,valeur:niveauAutre?'AUTRE':f.niveau})}${champ('niveau_autre','Précisez le niveau',{valeur:niveauAutre?f.niveau:''})}${champ('porte','Numéro de porte',{valeur:f.porte})}${champ('enseigne','Y a-t-il une enseigne ?',{choix:CHOIX.enseigne,valeur:f.enseigne})}${champ('regime','Régime déclaré',{choix:CHOIX.regime,valeur:f.regime})}</div><datalist id="rue-suggestions"></datalist>${champ('observation','Observation',{valeur:f.observation,aire:true})}<div id="erreurs" role="alert" tabindex="-1"></div><div class="actions"><button class="principal" id="enregistrer">Enregistrer la fiche</button>${edition?'<button type="button" id="annuler-edition">Annuler la correction</button>':''}</div></form><details id="mes-fiches"><summary>Mes fiches du jour</summary><div id="liste-fiches"></div></details>`;
   $('fiche').oninput=()=>{$('fiche').dataset.modifie='oui';};
   for(const n of ['nif','telephone'])$(n).oninput=()=>{$(n).value=chiffres($(n).value);if(n==='nif')avertirNif();};
   $('immatricule').onchange=avertirNif;
   $('niveau').onchange=()=>{$('niveau_autre').parentElement.hidden=$('niveau').value!=='AUTRE';};$('niveau').onchange();
   $('rue').oninput=()=>{rueSource='AGENT';rueOrigine=$('rue').value;};
+  $('garder-gps').onclick=()=>gpsEnCours?.stop();
   $('reprendre-gps').onclick=()=>prendreGPS().catch(erreur);
   $('fiche').onsubmit=enregistrer;
   if($('annuler-edition'))$('annuler-edition').onclick=()=>{if(protegerBrouillon()){edition=null;afficherRecensement();}};
@@ -96,14 +99,15 @@ function avertirNif(){const oui=$('immatricule').value==='OUI';$('nif').required
 function suggestions(){for(const n of ['rue','activite']){const liste=$(`${n}-suggestions`);if(!liste)continue;liste.replaceChildren();const valeurs=[...new Set([...recenses,...fiches.filter(f=>f.agent===session.agent)].map(f=>texte(f[n])).filter(Boolean))].sort();for(const v of valeurs){const o=document.createElement('option');o.value=v;liste.append(o);}}}
 function afficherPoint(note=''){
   const el=$('gps-etat');if(!el)return;
+  if($('garder-gps'))$('garder-gps').disabled=!point||!gpsEnCours;
   if(!point){el.className='';el.textContent=note||'Aucun point GPS. Vous pouvez enregistrer sans GPS.';return;}
-  const seuil=reglage('GPS_SEUIL_M');el.className=couleurPrecision(point.precision,seuil);
+  const seuil=reglage('GPS_SEUIL_M');el.className=couleurPrecision(point.precision,seuil,reglage('GPS_OBJECTIF_M'));
   el.textContent=`Précision : ${Math.round(point.precision)} m · ${point.precision<=seuil?'bon point':'point imprécis, conservé'}${note?' · '+note:''}`;
 }
 async function prendreGPS(){
-  arreterGPS();point=null;proposition=null;$('rue-proposee')?.replaceChildren();afficherPoint('Recherche du GPS…');
+  arreterGPS();point=null;proposition=null;$('rue-proposee')?.replaceChildren();afficherPoint("Recherche d'un point plus précis…");
   const id=brouillonId;
-  const t=ecouterGPS({...(factice?{geolocalisation:gpsFactice}:{}),seuil:reglage('GPS_SEUIL_M'),duree:reglage('GPS_DUREE_S'),surMesure:(p,note)=>{if(brouillonId===id){point=p;afficherPoint(note);}}});gpsEnCours=t;
+  const t=ecouterGPS({...(factice?{geolocalisation:gpsFactice}:{}),objectif:reglage('GPS_OBJECTIF_M'),affiner:reglage('GPS_AFFINER_S'),duree:reglage('GPS_DUREE_S'),surMesure:(p,note)=>{if(brouillonId===id){point=p;afficherPoint(note);}}});gpsEnCours=t;afficherPoint("Recherche d'un point plus précis…");
   const resultat=await t.promesse;if(gpsEnCours!==t)return;gpsEnCours=null;
   point=resultat.point;afficherPoint(resultat.raison);if(point)await proposer();
 }
@@ -163,7 +167,7 @@ async function rafraichir(){
   if(rafraichissement)return rafraichissement;
   rafraichissement=(async()=>{
     const ancien=session;const r=await appel('bonjour');session={...r,code:ancien.code};await db.garder('session',session);
-    if(!jourCorrect()&&!$('fiche')?.dataset.modifie)await choisirEquipe();else{
+    if(!jourCorrect()&&!accesBureau()&&!$('fiche')?.dataset.modifie)await choisirEquipe();else{
       entete();if(!choixJour){const avant=onglet;actualiserOnglets();if(avant!==onglet)afficher();}
     }
     const liste=await appel('recenses');recenses=Array.isArray(liste)?liste:liste.recenses;
@@ -187,7 +191,7 @@ async function gestion(){
   const agents=Array.isArray(resultat)?resultat:resultat.agents;
   if(!Array.isArray(agents))throw new Error('La liste des agents reçue est illisible.');
   $('contenu').innerHTML=`<h1>Gestion</h1><h2>Agents</h2><div id="agents"></div><form id="ajout-agent" class="carte"><h2>Ajouter un agent</h2>${champ('nom-agent','Nom *',{obligatoire:true})}<label><input type="checkbox" name="peut_extraire">Peut extraire</label><label><input type="checkbox" name="peut_gerer">Peut gérer</label><button class="principal">Ajouter l’agent</button></form><h2>Équipes actives</h2><div id="gestion-equipes"></div><form id="ajout-equipe" class="carte"><h2>Ajouter une équipe</h2>${champ('nom-equipe','Nom de l’équipe *',{obligatoire:true})}<label><input type="checkbox" name="fait_la_tournee">Fait la tournée</label><button class="principal">Ajouter l’équipe</button></form>`;
-  async function mutation(action,data){if(!enLigne())throw new Error('Il faut du réseau pour la gestion');const r=await appel(action,data);if(r.code_nouveau)await montrerCode(r.code_nouveau);await rafraichir();if(onglet==='Gestion'&&jourCorrect())await gestion();return r;}
+  async function mutation(action,data){if(!enLigne())throw new Error('Il faut du réseau pour la gestion');const r=await appel(action,data);if(r.code_nouveau)await montrerCode(r.code_nouveau);await rafraichir();if(onglet==='Gestion'&&droit(session?.peut_gerer))await gestion();return r;}
   function branche(form,fn){form.onsubmit=async e=>{e.preventDefault();const b=e.submitter;b.disabled=true;try{await fn(new FormData(form));}catch(e){erreur(e);}finally{b.disabled=false;}};}
   const oui=(fd,k)=>fd.has(k)?'OUI':'NON';
   branche($('ajout-agent'),fd=>mutation('agent_ajouter',{nom:texte(fd.get('nom-agent')),peut_extraire:oui(fd,'peut_extraire'),peut_gerer:oui(fd,'peut_gerer')}));
@@ -224,8 +228,8 @@ async function demarrer(){
 }
 window.addEventListener('online',()=>{entete();rafraichir().then(envoyer).catch(erreur);if(onglet==='Gestion')gestion().catch(erreur);});
 window.addEventListener('offline',()=>{entete();if(onglet==='Gestion')gestion().catch(erreur);});
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&session){if(!jourCorrect()&&!$('fiche')?.dataset.modifie)choisirEquipe().catch(erreur);if(enLigne())rafraichir().then(envoyer).catch(erreur);}});
-setInterval(()=>{if(!session)return;if(!jourCorrect()&&!choixJour&&!$('fiche')?.dataset.modifie)choisirEquipe().catch(erreur);if(enLigne())(db.lire('recenses_jour').then(d=>d!==jour()?rafraichir():null).then(envoyer)).catch(erreur);},120000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&session){if(!jourCorrect()&&!accesBureau()&&!$('fiche')?.dataset.modifie)choisirEquipe().catch(erreur);if(enLigne())rafraichir().then(envoyer).catch(erreur);}});
+setInterval(()=>{if(!session)return;if(!jourCorrect()&&!accesBureau()&&!choixJour&&!$('fiche')?.dataset.modifie)choisirEquipe().catch(erreur);if(enLigne())(db.lire('recenses_jour').then(d=>d!==jour()?rafraichir():null).then(envoyer)).catch(erreur);},120000);
 window.addEventListener('pagehide',arreterGPS);
 window.addEventListener('beforeunload',e=>{if($('fiche')?.dataset.modifie){e.preventDefault();e.returnValue='';}});
 demarrer().catch(e=>{erreur(e);if(!db)$('contenu').textContent='Le carnet local ne peut pas être ouvert. Autorisez le stockage dans ce navigateur, puis rechargez la page.';});
