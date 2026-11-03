@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#092c50">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icone-192.png">
+  <link rel="icon" href="./icone-192.png">
+  <link rel="stylesheet" href="./style.css">
+  <title>ORFE Terrain</title>
+</head>
+<body>
+  <header><div class="marque">ORFE <span>Terrain</span></div><div id="identite"></div><button id="changer" hidden>Changer d’équipe</button></header>
+  <aside id="compteur" aria-live="polite">0 fiches pas encore envoyées</aside>
+  <div id="message" role="status" aria-live="polite"></div>
+  <nav id="onglets" aria-label="Rubriques"></nav>
+  <main id="contenu"><p>Ouverture du carnet…</p></main>
+  <footer><span id="reseau"></span> · <span id="version"></span><button id="envoyer" hidden>Envoyer maintenant</button></footer>
+  <dialog id="code-neuf" aria-labelledby="titre-code"><h2 id="titre-code">Code à transmettre</h2><p>Ce code ne sera montré qu’une seule fois.</p><p id="code-affiche" class="grand-code"></p><button id="copier">Copier</button><button id="fermer-code">J’ai noté le code</button></dialog>
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>
