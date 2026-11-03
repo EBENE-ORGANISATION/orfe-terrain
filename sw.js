@@ -1,7 +1,7 @@
 // Worker classique pour Safari 15. Garder ce numéro identique à config.js (essai automatique).
-const VERSION='1.1.0';
+const VERSION='1.2.0';
 const CACHE=`orfe-terrain-${VERSION}`;
-const FICHIERS=['./','./index.html','./style.css','./app.mjs','./config.js','./metier.mjs','./tournee.mjs','./gps.mjs','./transport.mjs','./stockage.mjs','./manifest.webmanifest','./icone-192.png','./icone-512.png'];
+const FICHIERS=['./','./index.html','./style.css','./app.mjs','./config.js','./metier.mjs','./tournee.mjs','./extraction.mjs','./gps.mjs','./transport.mjs','./stockage.mjs','./manifest.webmanifest','./icone-192.png','./icone-512.png'];
 self.addEventListener('install',e=>{e.waitUntil((async()=>{
   // Toujours le serveur, jamais le cache HTTP : sinon une version peut garder les fichiers de la précédente.
   const c=await caches.open(CACHE);await c.addAll(FICHIERS.map(f=>new Request(f,{cache:'reload'})));
@@ -26,7 +26,8 @@ self.addEventListener('fetch',e=>{
     const garde=await cache.match(canonique);if(garde)return garde;
     const r=await fetch(e.request);
     // Le simulateur réside dans essais ; il est mis en cache à sa première utilisation.
-    if(r.ok&&url.pathname.endsWith('/essais/telephone/boite-factice.js'))await cache.put(e.request,r.clone());
+    const outils=['xlsx.full.min.js','jspdf.umd.min.js','jspdf.plugin.autotable.min.js'].map(n=>new URL('./lib/'+n,self.location.href).pathname);
+    if(r.ok&&(url.pathname.endsWith('/essais/telephone/boite-factice.js')||outils.includes(url.pathname)))await cache.put(e.request,r.clone());
     return r;
   })());
 });

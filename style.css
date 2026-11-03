@@ -3,3 +3,4 @@ dialog:not([open]){display:none}dialog[open]{position:fixed;top:20vh;z-index:10}
 
 .resultat{display:block;width:100%;text-align:left}.pris-autre{color:#55616d}a.bouton{display:inline-block;min-height:48px;padding:10px 16px;border:2px solid var(--marine);border-radius:6px;color:var(--marine);font-weight:700;overflow-wrap:anywhere}dd{margin:0 0 12px;overflow-wrap:anywhere}dt{font-weight:700}button{max-width:100%;overflow-wrap:anywhere}.grille>*{min-width:0}
 h1,h2,p{overflow-wrap:anywhere}
+body:has(#extraction) main{max-width:1120px}#extraction dl{display:grid;grid-template-columns:minmax(0,2fr) minmax(70px,1fr);gap:6px 20px;max-width:800px}#extraction dd{margin:0}#extraction dt{font-weight:500}#extraction [hidden]{display:none}

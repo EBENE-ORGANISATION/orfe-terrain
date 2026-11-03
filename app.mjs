@@ -5,6 +5,7 @@ import {ecouterGPS} from './gps.mjs';
 import {poster,carteRues} from './transport.mjs';
 import {indexerRecherche,lireConnus,chercher,miseAJour,distance,RESULTATS,resultatsVisibles,numeros,localisation,validerVisite,annulation,appliquerVisitesLocales,visitesActives,avertissementsCadenas,mesPoints,trajet,liensMaps,appliquerActions} from './tournee.mjs';
 import {pointValide} from './metier.mjs';
+import {resumeExtraction,milliers,nomExtraction,chargerOutils,creerExcel,creerPDF,telecharger} from './extraction.mjs';
 
 const $=id=>document.getElementById(id);
 const factice=new URL(location.href).searchParams.get('factice')==='1';
@@ -73,6 +74,7 @@ function afficher(){
   else if(onglet==='Gestion')gestion().catch(erreur);
   else if(onglet==='Recherche')afficherRecherche();
   else if(onglet==='Tournée')afficherTournee();
+  else if(onglet==='Extraire')afficherExtraction();
   else $('contenu').innerHTML=`<h1>${echapper(onglet)}</h1><p>Bientôt disponible.</p>`;
 }
 function actualiserOnglets(){
@@ -86,6 +88,45 @@ function champ(nom,titre,options={}){
   const attributs=`id="${nom}" name="${nom}" ${options.obligatoire?'required':''}`;
   const select=options.choix;
   return `<div><label for="${nom}">${titre}</label>${select?`<select ${attributs}><option value="">Choisir…</option>${select.map(v=>`<option ${v===valeur?'selected':''}>${echapper(v)}</option>`).join('')}</select>`:options.aire?`<textarea ${attributs}>${echapper(valeur)}</textarea>`:`<input ${attributs} value="${echapper(valeur)}" ${options.chiffres?'inputmode="numeric"':''} ${options.suggestions?`list="${nom}-suggestions"`:''}>`}</div>`;
+}
+function afficherExtraction(){
+  if(!droit(session?.peut_extraire))return;
+  if(!enLigne()){$('contenu').innerHTML="<p>L'extraction demande internet.</p>";return;}
+  $('contenu').innerHTML=`<section id="extraction"><h1>Extraire</h1><form id="choix-extraction"><label for="ex-quoi">Extraire</label><select id="ex-quoi"><option value="RECENSEMENT">Recensement</option><option value="TOURNEE">Rapport de tournée</option></select><div class="grille"><div><label for="ex-du">Du</label><input id="ex-du" type="date" value="${jour()}" required></div><div><label for="ex-au">Au</label><input id="ex-au" type="date" value="${jour()}" required></div><div><label for="ex-equipe">Équipe</label><select id="ex-equipe"><option value="">Toutes</option>${(session.equipes||[]).map(e=>`<option value="${echapper(e.nom)}">${echapper(e.nom)}</option>`).join('')}</select></div><div><label for="ex-agent">Agent (contient)</label><input id="ex-agent"></div></div><div id="ex-rec"><label for="ex-rue">Rue ou immeuble</label><input id="ex-rue"><label><input id="ex-sans-nif" type="checkbox">Sans NIF seulement</label></div><div class="actions"><button class="principal" id="ex-preparer">Préparer</button></div></form><div id="ex-resultat" role="status" aria-live="polite"></div></section>`;
+  const form=$('choix-extraction'),zone=$('ex-resultat');
+  const vider=()=>zone.replaceChildren();
+  form.oninput=vider;
+  $('ex-quoi').onchange=()=>{$('ex-rec').hidden=$('ex-quoi').value!=='RECENSEMENT';vider();};
+  form.onsubmit=async e=>{
+    e.preventDefault();vider();
+    if(!enLigne())return afficherExtraction();
+    const p={quoi:$('ex-quoi').value,du:$('ex-du').value,au:$('ex-au').value,equipe:$('ex-equipe').value,agent:$('ex-agent').value};
+    if(p.quoi==='RECENSEMENT')Object.assign(p,{rue:$('ex-rue').value,sans_nif:$('ex-sans-nif').checked});
+    if(p.du>p.au){zone.textContent='La date Du doit précéder ou égaler la date Au.';return;}
+    const bouton=$('ex-preparer');bouton.disabled=true;zone.textContent='Préparation en cours…';
+    const saisie=JSON.stringify(p);
+    const toujoursIci=()=>onglet==='Extraire'&&$('choix-extraction')===form&&enLigne();
+    try{
+      // Même le premier clic charge les scripts locaux ; aucun téléchargement au démarrage.
+      const r=await appel('extraire',p);
+      await chargerOutils();
+      if(!toujoursIci())return;
+      if(!r.lignes.length){zone.textContent='Aucune fiche pour ces choix.';return;}
+      // Ne pas afficher un ancien résultat si les filtres ont changé pendant la demande.
+      const actuels={quoi:$('ex-quoi').value,du:$('ex-du').value,au:$('ex-au').value,equipe:$('ex-equipe').value,agent:$('ex-agent').value};
+      if(actuels.quoi==='RECENSEMENT')Object.assign(actuels,{rue:$('ex-rue').value,sans_nif:$('ex-sans-nif').checked});
+      if(JSON.stringify(actuels)!==saisie){vider();return;}
+      const resume=resumeExtraction(r.quoi,r.titres,r.lignes),quand=dateLocale();
+      const fichiers=[['xlsx',creerExcel(r,resume)],['pdf',creerPDF(r,resume,{agent:session.agent,filtres:p,quand})]];
+      zone.replaceChildren();const phrase=document.createElement('p');phrase.textContent=resume.phrase;zone.append(phrase);
+      const liste=document.createElement('dl');for(const [t,n] of resume.chiffres){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=t;dd.textContent=milliers(n);liste.append(dt,dd);}zone.append(liste);
+      const actions=document.createElement('div');actions.className='actions';zone.append(actions);
+      for(const [extension,blob] of fichiers){const b=document.createElement('button');b.textContent=extension==='xlsx'?"Télécharger l’Excel":"Télécharger le PDF";b.onclick=()=>telecharger(blob,nomExtraction(r.quoi,r.du,r.au,extension));actions.append(b);}
+      const partages=typeof File==='function'?fichiers.map(([ext,blob])=>new File([blob],nomExtraction(r.quoi,r.du,r.au,ext),{type:blob.type})):[];
+      if(partages.length&&navigator.canShare?.({files:partages})){const b=document.createElement('button');b.textContent='Partager';b.onclick=async()=>{try{await navigator.share({files:partages});}catch(e){if(e.name!=='AbortError')erreur(e);}};actions.append(b);}
+    }catch(e){if(toujoursIci())zone.textContent=e.message==='DROIT'?"Votre code n'a pas le droit d'extraire.":e.message;}
+    finally{bouton.disabled=false;}
+  };
 }
 function afficherRecensement(reprendre={}){
   const f=edition||reprendre;point=f.gps&&f.gps!=='AUCUN'?{lat:f.lat,lon:f.lon,precision:f.precision}:null;
@@ -333,8 +374,8 @@ async function demarrer(){
   serviceWorker().catch(erreur);
   if(session&&enLigne()){try{await rafraichir();}catch(e){erreur(e);}await envoyer();}
 }
-window.addEventListener('online',()=>{entete();rafraichir().then(envoyer).catch(erreur);if(onglet==='Gestion')gestion().catch(erreur);});
-window.addEventListener('offline',()=>{entete();if(onglet==='Gestion')gestion().catch(erreur);});
+window.addEventListener('online',()=>{entete();rafraichir().then(envoyer).catch(erreur);if(onglet==='Gestion')gestion().catch(erreur);if(onglet==='Extraire')afficherExtraction();});
+window.addEventListener('offline',()=>{entete();if(onglet==='Gestion')gestion().catch(erreur);if(onglet==='Extraire')afficherExtraction();});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')chercherVersion();if(document.visibilityState==='visible'&&session){if(!jourCorrect()&&!accesBureau()&&!$('fiche')?.dataset.modifie)choisirEquipe().catch(erreur);if(enLigne())rafraichir().then(envoyer).catch(erreur);}});
 setInterval(()=>{chercherVersion();if(!session)return;if(!jourCorrect()&&!accesBureau()&&!choixJour&&!$('fiche')?.dataset.modifie)choisirEquipe().catch(erreur);if(enLigne())rafraichir().then(envoyer).catch(erreur);},120000);
 window.addEventListener('pagehide',()=>{arreterGPS();arreterVeille();});
