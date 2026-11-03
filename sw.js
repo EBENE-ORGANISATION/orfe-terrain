@@ -1,7 +1,7 @@
 // Worker classique pour Safari 15. Garder ce numéro identique à config.js (essai automatique).
-const VERSION='1.0.12';
+const VERSION='1.1.0';
 const CACHE=`orfe-terrain-${VERSION}`;
-const FICHIERS=['./','./index.html','./style.css','./app.mjs','./config.js','./metier.mjs','./gps.mjs','./transport.mjs','./stockage.mjs','./manifest.webmanifest','./icone-192.png','./icone-512.png'];
+const FICHIERS=['./','./index.html','./style.css','./app.mjs','./config.js','./metier.mjs','./tournee.mjs','./gps.mjs','./transport.mjs','./stockage.mjs','./manifest.webmanifest','./icone-192.png','./icone-512.png'];
 self.addEventListener('install',e=>{e.waitUntil((async()=>{
   // Toujours le serveur, jamais le cache HTTP : sinon une version peut garder les fichiers de la précédente.
   const c=await caches.open(CACHE);await c.addAll(FICHIERS.map(f=>new Request(f,{cache:'reload'})));
