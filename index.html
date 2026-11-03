@@ -14,11 +14,11 @@
 </head>
 <body>
   <header><div class="marque">ORFE <span>Terrain</span></div><div id="identite"></div><button id="changer" hidden>Changer d’équipe</button></header>
-  <aside id="compteur" aria-live="polite">0 fiches pas encore envoyées</aside>
+  <aside id="compteur" aria-live="polite"><span id="compteur-texte">0 fiches pas encore envoyées</span><button id="envoyer" hidden>Envoyer</button></aside>
   <div id="message" role="status" aria-live="polite"></div>
   <nav id="onglets" aria-label="Rubriques"></nav>
   <main id="contenu"><p>Ouverture du carnet…</p></main>
-  <footer><span id="reseau"></span> · <span id="version"></span><button id="envoyer" hidden>Envoyer maintenant</button></footer>
+  <footer><span id="reseau"></span> · <span id="version"></span></footer>
   <dialog id="code-neuf" aria-labelledby="titre-code"><h2 id="titre-code">Code à transmettre</h2><p>Ce code ne sera montré qu’une seule fois.</p><p id="code-affiche" class="grand-code"></p><button id="copier">Copier</button><button id="fermer-code">J’ai noté le code</button></dialog>
   <script type="module" src="./app.mjs"></script>
 </body>
