@@ -77,8 +77,9 @@ export function creerPDF(extraction,resume,{agent,filtres={},quand},JsPDF=global
   doc.setFont('helvetica','normal');doc.setFontSize(15);
   doc.text(textePDF(`ORFE TERRAIN : ${rec?'Recensement':'Rapport de tournée'} du ${dateFR(du)}${du===au?'':` au ${dateFR(au)}`}`),12,15);
   doc.setFontSize(9);doc.text(textePDF(`Extrait le ${dateFR(quand)} à ${quand.slice(11,16)} par ${agent}`),12,21);
-  const colonnes=rec?['DATE','EQUIPE','AGENT','NIF','RAISON SOCIALE','NOM DU RESPONSABLE','TELEPHONE','ACTIVITE','ACTION','RUE','IMMEUBLE','NIVEAU','GPS']:['DATE','AGENT','NIF','RAISON SOCIALE','ORIGINE','RESULTAT','ACTE','MONTANT','DATE PROMISE','CADENAS','OBSERVATION'];
-  const labels=rec?['Date','Équipe','Agent','NIF','Raison sociale','Responsable','Téléphone','Activité','Rue','Immeuble','Niveau','GPS']:['Date','Agent','NIF','Raison sociale','Origine','Résultat','Acte','Montant','Date promise','Cadenas','Observation'];
+  // Chaque colonne porte son titre : un titre ne peut plus se décaler de sa donnée.
+  const tableau=rec?[['AGENT','Agent'],['NIF','NIF'],['RAISON SOCIALE','Raison sociale'],['NOM DU RESPONSABLE','Responsable'],['TELEPHONE','Téléphone'],['ACTIVITE','Activité'],['ENSEIGNE','Enseigne'],['ACTION','Action'],['RUE','Rue'],['IMMEUBLE','Immeuble'],['NIVEAU','Niveau'],['GPS','GPS']]:[['DATE','Date'],['AGENT','Agent'],['NIF','NIF'],['RAISON SOCIALE','Raison sociale'],['ORIGINE','Origine'],['RESULTAT','Résultat'],['ACTE','Acte'],['MONTANT','Montant'],['DATE PROMISE','Date promise'],['CADENAS','Cadenas'],['OBSERVATION','Observation']];
+  const colonnes=tableau.map(c=>c[0]),labels=tableau.map(c=>c[1]);
   doc.autoTable({startY:26,head:[labels],body:lignes.map(r=>colonnes.map(t=>textePDF(r[titres.indexOf(t)]))),margin:{left:12,right:12,top:12,bottom:14},styles:{font:'helvetica',fontSize:7,cellPadding:1.5,overflow:'linebreak'},headStyles:{fillColor:[9,44,80]}});
   const pages=doc.getNumberOfPages();doc.setFontSize(8);
   for(let n=1;n<=pages;n++){doc.setPage(n);doc.text(`page ${n} / ${pages}`,285,204,{align:'right'});}
