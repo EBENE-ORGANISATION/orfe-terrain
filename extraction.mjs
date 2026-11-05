@@ -74,14 +74,14 @@ const dateFR=v=>v.slice(0,10).split('-').reverse().join('/');
 export function creerPDF(extraction,resume,{agent,filtres={},quand},JsPDF=globalThis.jspdf.jsPDF){
   const {quoi,du,au,titres,lignes}=extraction,rec=quoi==='RECENSEMENT';
   const doc=new JsPDF({orientation:'landscape',unit:'mm',format:'a4'});
-  doc.setFont('helvetica','normal');doc.setFontSize(15);
+  doc.setFont('helvetica','normal');doc.setFontSize(17);
   doc.text(textePDF(`ORFE TERRAIN : ${rec?'Recensement':'Rapport de tournée'} du ${dateFR(du)}${du===au?'':` au ${dateFR(au)}`}`),12,15);
-  doc.setFontSize(9);doc.text(textePDF(`Extrait le ${dateFR(quand)} à ${quand.slice(11,16)} par ${agent}`),12,21);
+  doc.setFontSize(11);doc.text(textePDF(`Extrait le ${dateFR(quand)} à ${quand.slice(11,16)} par ${agent}`),12,22);
   // Chaque colonne porte son titre : un titre ne peut plus se décaler de sa donnée.
   const tableau=rec?[['AGENT','Agent'],['NIF','NIF'],['RAISON SOCIALE','Raison sociale'],['NOM DU RESPONSABLE','Responsable'],['TELEPHONE','Téléphone'],['ACTIVITE','Activité'],['ENSEIGNE','Enseigne'],['ACTION','Action'],['RUE','Rue'],['IMMEUBLE','Immeuble'],['NIVEAU','Niveau'],['GPS','GPS']]:[['DATE','Date'],['AGENT','Agent'],['NIF','NIF'],['RAISON SOCIALE','Raison sociale'],['ORIGINE','Origine'],['RESULTAT','Résultat'],['ACTE','Acte'],['MONTANT','Montant'],['DATE PROMISE','Date promise'],['CADENAS','Cadenas'],['OBSERVATION','Observation']];
   const colonnes=tableau.map(c=>c[0]),labels=tableau.map(c=>c[1]);
-  doc.autoTable({startY:26,head:[labels],body:lignes.map(r=>colonnes.map(t=>textePDF(r[titres.indexOf(t)]))),margin:{left:12,right:12,top:12,bottom:14},styles:{font:'helvetica',fontSize:7,cellPadding:1.5,overflow:'linebreak'},headStyles:{fillColor:[9,44,80]}});
-  const pages=doc.getNumberOfPages();doc.setFontSize(8);
+  doc.autoTable({startY:28,theme:'grid',head:[labels],body:lignes.map(r=>colonnes.map(t=>textePDF(r[titres.indexOf(t)]))),margin:{left:12,right:12,top:12,bottom:14},styles:{font:'helvetica',fontSize:9.5,cellPadding:1.8,overflow:'linebreak',textColor:[17,27,37],lineColor:[96,112,128],lineWidth:0.2},headStyles:{fillColor:[9,44,80],textColor:[255,255,255],fontStyle:'bold',fontSize:10}});
+  const pages=doc.getNumberOfPages();doc.setFontSize(9);
   for(let n=1;n<=pages;n++){doc.setPage(n);doc.text(`page ${n} / ${pages}`,285,204,{align:'right'});}
   return doc.output('blob');
 }
