@@ -23,3 +23,11 @@ html{scroll-padding-top:90px;scroll-padding-bottom:calc(var(--bas) + 100px)}
 
 /* Lot 5B : mêmes tuiles et actions que le lot. */
 .resultat-ajout{margin-bottom:12px}.resultat-ajout .resultat{margin-bottom:0}.ajouter-tournee{width:100%;margin-top:6px}.lot-tuile.terminee{background:#eef0f2;color:#687380}.chiffres-lot.deux{grid-template-columns:repeat(2,1fr)}
+
+/* Situation du lot, lecture seule, mêmes tuiles et marine du design D. */
+.lot-bas .voir-situation{margin-left:6px}
+.situation-montants{overflow-x:auto;padding:12px}
+.situation-montants table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+.situation-montants th,.situation-montants td{padding:12px 3px;text-align:right;border-bottom:1px solid #e1e5ec;white-space:nowrap}
+.situation-montants th:first-child{text-align:left}
+.situation-montants tfoot{font-weight:700;color:#142a48}

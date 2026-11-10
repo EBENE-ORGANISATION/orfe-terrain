@@ -15,6 +15,7 @@ function icone(n){return `<svg width="24" height="24" viewBox="0 0 24 24" fill="
 const ICONES_RESULTATS={FICHE_REMISE:'coche',ACTE_REMIS:'enveloppe',A_PAYE:'billet',PROMESSE:'calendrier',ABSENT:'horloge',TROUVEE_FERMEE:'maison',FERMETURE_OTR:'cadenas',REFUS:'interdit',DEMENAGE:'fleche',INTROUVABLE:'question',REPORTE:'retour',REOUVERTURE:'ouvert'};
 const jour=()=>dateLocale().slice(0,10);
 let db,session,equipe,recenses=[],fiches=[],onglet='Recensement',edition=null,point=null,gpsEnCours=null,proposition=null,rueSource='AGENT',rueOrigine='',envoi=false,sauvegarde=false,choixJour=false;
+let situationOuverte=null;
 let brouillonId=nouvelId(),rafraichissement=null;
 const rueCarte=carteRues();
 let simuler,gpsFactice;
@@ -22,6 +23,27 @@ let ajoutsParCode={},ajouts=[];
 let connus=[],indexRecherche=[],lotGarde={lot:[],pris:[],cadenas_poses:[]},actions=[],depart=null,ordre=[],chauffe=null,pageQuittee=false,dernierePosition=0,visiteEnCours=null,actionsEnvoi=false;
 function reindexer(){indexRecherche=indexerRecherche(recenses,connus,fiches.filter(f=>f.agent===session?.agent));}
 async function garderCadenas(r){if(Array.isArray(r.cadenas_poses)){lotGarde={...lotGarde,cadenas_poses:r.cadenas_poses};await db.garder('lot',lotGarde);}}
+async function effacerSituations(){
+  const ouverte=situationOuverte;situationOuverte=null;
+  delete lotGarde.situations;await db.garder('lot',lotGarde);
+  if(ouverte){visiteEnCours=ouverte.visite;$('contenu').replaceChildren(...ouverte.contenu);afficherPoint();}
+  document.querySelectorAll('.voir-situation').forEach(b=>b.remove());
+}
+function situationPour(f){return f.origine!=='LIBRE'&&droit(session?.peut_voir_situation)&&droit(equipeActuelle()?.fait_la_tournee)&&lotGarde.lot.some(l=>l.nif===f.nif)?lotGarde.situations?.[f.nif]:null;}
+function boutonSituation(parent,f){
+  if(!situationPour(f))return;const b=document.createElement('button');b.type='button';b.className='voir-situation';b.textContent='Situation';b.onclick=()=>ouvrirSituation(f);parent.append(b);
+}
+function ouvrirSituation(f){
+  const s=situationPour(f);if(!s)return;
+  const visite=visiteEnCours;
+  // Conserver les vrais nœuds : les champs et leurs gestionnaires restent intacts au retour.
+  const contenu=[...$('contenu').childNodes];situationOuverte={contenu,visite};
+  const date=v=>String(v||'').slice(0,10).split('-').reverse().join('/');
+  const montant=v=>echapper(Number(v).toLocaleString('fr-FR'));
+  $('contenu').innerHTML=`<section id="situation"><button id="retour-situation" type="button">← Retour</button><div class="carte"><h1>${echapper(f.raison||f.responsable||f.nif)}</h1><p>NIF ${echapper(f.nif)}</p><p class="sous">Situation au ${date(s.au)} à ${echapper(s.au.slice(11,16))}, calculée par ORFE</p></div><div class="carte situation-montants"><p class="sous">Montants en FCFA</p><table><thead><tr><th>Exercice</th><th>Imposé</th><th>Versé</th><th>Reste</th></tr></thead><tbody>${s.exercices.map(e=>`<tr><th scope="row">${echapper(e.an)}</th><td>${montant(e.impose)}</td><td>${montant(e.verse)}</td><td>${montant(e.rar)}</td></tr>`).join('')}</tbody><tfoot><tr><th scope="row" colspan="3">Total</th><td>${montant(s.total)}</td></tr></tfoot></table>${!s.exercices.length?'<p>Aucun exercice avec montant.</p>':''}</div><div class="carte"><h2>Derniers actes</h2>${s.actes.map(a=>`<p><span class="sous">${date(a.date)}</span><br><strong>${echapper(a.libelle)}</strong>${a.montant===''?'':`<br>${montant(a.montant)} FCFA`}</p>`).join('')||'<p>Aucun acte transmis.</p>'}</div></section>`;
+  $('retour-situation').onclick=()=>{const retour=situationOuverte;situationOuverte=null;if(!retour)return;visiteEnCours=retour.visite;$('contenu').replaceChildren(...retour.contenu);afficherPoint();};
+  scrollTo(0,0);
+}
 function visitesLocales(){return fiches.filter(f=>f.type==='TOURNEE');}
 function lotAffiche(){const r=appliquerActions(lotGarde.lot,lotGarde.pris,actions,session.agent,lotGarde.date_lot);r.lot=r.lot.map(f=>appliquerVisitesLocales(f,visitesLocales().filter(v=>v.nif===f.nif&&v.lot===lotGarde.date_lot)));return r;}
 function ajusterChauffe(){
@@ -48,7 +70,7 @@ async function appel(action,donnees={}){
   if(equipe?.nom&&!Object.prototype.hasOwnProperty.call(donnees,'equipe'))demande.equipe=equipe.nom;
   const r=factice?await simuler(demande):await poster(BOITE_URL,demande);
   if(r?.ok===false){
-    if(r.raison==='CODE'){await db.garder('session',null);session=null;equipe=null;arreterGPS();ajusterChauffe();afficherConnexion();}
+    if(r.raison==='CODE'){await effacerSituations();await db.garder('session',null);session=null;equipe=null;arreterGPS();ajusterChauffe();afficherConnexion();}
     throw new Error(r.raison==='CODE'?'Ce code n’est plus actif. Saisissez un nouveau code.':r.raison||'La demande a été refusée.');
   }
   return r;
@@ -69,11 +91,12 @@ function afficherConnexion(){
   $('connexion').onsubmit=async e=>{e.preventDefault();const bouton=e.submitter;bouton.disabled=true;try{
     if(!enLigne())throw new Error('Il faut du réseau pour la première ouverture.');
     const code=$('code').value;const r=await appel('bonjour',{code});
-    session={...r,code};await garderCadenas(r);await db.garder('session',session);await chargerFiches();await choisirEquipe();rafraichir().catch(erreur);
+    session={...r,code};if(!droit(r.peut_voir_situation))await effacerSituations();await garderCadenas(r);await db.garder('session',session);await chargerFiches();await choisirEquipe();rafraichir().catch(erreur);
   }catch(e){erreur(e);}finally{bouton.disabled=false;}};
 }
 async function chargerFiches(){ajoutsParCode=await db.lire('ajouts')||{};ajouts=ajoutsParCode[session?.code]||[];fiches=await db.fiches();reindexer();compteur();}
-function protegerBrouillon(){return !$('fiche')||!$('fiche').dataset.modifie||confirm('Quitter cette fiche sans enregistrer ?');}
+function ficheCourante(){return $('fiche')||situationOuverte?.contenu.find(n=>n.id==='fiche');}
+function protegerBrouillon(){return !ficheCourante()?.dataset.modifie||confirm('Quitter cette fiche sans enregistrer ?');}
 async function choisirEquipe(){
   arreterGPS();choixJour=true;entete();actualiserOnglets();
   $('contenu').innerHTML='<h1>Aujourd’hui, je suis dans :</h1><div id="equipes" class="equipes"></div><div id="acces-bureau" class="actions"></div>';
@@ -85,6 +108,7 @@ async function choisirEquipe(){
 function accesBureau(){return onglet==='Gestion'&&droit(session?.peut_gerer)||onglet==='Extraire'&&droit(session?.peut_extraire);}
 function jourCorrect(){return equipe?.date===jour()&&!!equipeActuelle();}
 function afficher(){
+  situationOuverte=null;
   if(!session)return afficherConnexion();
   if(!jourCorrect()&&!accesBureau())return choisirEquipe();
   entete();arreterGPS();actualiserOnglets();
@@ -172,6 +196,7 @@ function afficherRecensement(reprendre={}){
 function avertirNif(){const oui=$('immatricule').value==='OUI';$('nif').required=oui;$('avertissement-nif').textContent=oui&&$('nif').value&&!nifValide($('nif').value)?'À vérifier : le NIF devrait avoir 10 chiffres et commencer par 1. Vous pouvez enregistrer.':'';}
 function suggestions(){for(const n of ['rue','activite']){const liste=$(`${n}-suggestions`);if(!liste)continue;liste.replaceChildren();const valeurs=[...new Set([...recenses,...fiches.filter(f=>f.agent===session.agent)].map(f=>texte(f[n])).filter(Boolean))].sort();for(const v of valeurs){const o=document.createElement('option');o.value=v;liste.append(o);}}}
 function afficherPoint(note=''){
+  if(situationOuverte)return;
   const el=$('gps-etat');if(!el)return;
   if($('garder-gps'))$('garder-gps').disabled=!point||!gpsEnCours;
   if(!point){el.className='';el.textContent=note||'Aucun point GPS. Vous pouvez enregistrer sans GPS.';return;}
@@ -246,8 +271,8 @@ async function rafraichir(){
   if(!session||!enLigne())return;
   if(rafraichissement)return rafraichissement;
   rafraichissement=(async()=>{
-    const ancien=session;const r=await appel('bonjour');session={...r,code:ancien.code};await garderCadenas(r);await db.garder('session',session);
-    if(!jourCorrect()&&!accesBureau()&&!$('fiche')?.dataset.modifie)await choisirEquipe();else{
+    const ancien=session;const r=await appel('bonjour');session={...r,code:ancien.code};if(!droit(r.peut_voir_situation))await effacerSituations();await garderCadenas(r);await db.garder('session',session);
+    if(!jourCorrect()&&!accesBureau()&&!ficheCourante()?.dataset.modifie)await choisirEquipe();else{
       entete();if(!choixJour){const avant=onglet;actualiserOnglets();if(avant!==onglet)afficher();}
     }
     const liste=await appel('recenses');recenses=Array.isArray(liste)?liste:liste.recenses;
@@ -258,8 +283,8 @@ async function rafraichir(){
       try{const r=await appel('connus',{version:await db.lire('connus_version')||''});if(!r.inchange){connus=lireConnus(r);await db.garder('connus',connus);}await db.garder('connus_version',r.version);}catch(e){erreur(e);}
     }
     reindexer();
-    if(droit(equipeActuelle()?.fait_la_tournee)){const nouveau=await appel('lot');lotGarde={...nouveau,recu_le:new Date().toISOString()};await db.garder('lot',lotGarde);}
-    if(!$('fiche')?.dataset.modifie){if(onglet==='Recherche')afficherRecherche();if(onglet==='Tournée'&&!visiteEnCours)afficherTournee();}
+    if(droit(equipeActuelle()?.fait_la_tournee)){const nouveau=await appel('lot');lotGarde={...nouveau,recu_le:new Date().toISOString()};await db.garder('lot',lotGarde);if(!nouveau.situations)await effacerSituations();}
+    if(!ficheCourante()?.dataset.modifie){if(onglet==='Recherche')afficherRecherche();if(onglet==='Tournée'&&!visiteEnCours&&!situationOuverte)afficherTournee();}
   })();
   try{await rafraichissement;}finally{rafraichissement=null;}
 }
@@ -277,19 +302,19 @@ async function gestion(){
   const resultat=await appel('agents');if(onglet!=='Gestion'||!session)return;
   const agents=Array.isArray(resultat)?resultat:resultat.agents;
   if(!Array.isArray(agents))throw new Error('La liste des agents reçue est illisible.');
-  $('contenu').innerHTML=`<h1>Gestion</h1><h2>Agents</h2><div id="agents"></div><form id="ajout-agent" class="carte"><h2>Ajouter un agent</h2>${champ('nom-agent','Nom *',{obligatoire:true})}<label><input type="checkbox" name="peut_extraire">Peut extraire</label><label><input type="checkbox" name="peut_gerer">Peut gérer</label><button class="principal">Ajouter l’agent</button></form><h2>Équipes actives</h2><div id="gestion-equipes"></div><form id="ajout-equipe" class="carte"><h2>Ajouter une équipe</h2>${champ('nom-equipe','Nom de l’équipe *',{obligatoire:true})}<label><input type="checkbox" name="fait_la_tournee">Fait la tournée</label><button class="principal">Ajouter l’équipe</button></form>`;
+  $('contenu').innerHTML=`<h1>Gestion</h1><h2>Agents</h2><div id="agents"></div><form id="ajout-agent" class="carte"><h2>Ajouter un agent</h2>${champ('nom-agent','Nom *',{obligatoire:true})}<label><input type="checkbox" name="peut_extraire">Peut extraire</label><label><input type="checkbox" name="peut_gerer">Peut gérer</label><label><input type="checkbox" name="peut_voir_situation">Peut voir les situations</label><button class="principal">Ajouter l’agent</button></form><h2>Équipes actives</h2><div id="gestion-equipes"></div><form id="ajout-equipe" class="carte"><h2>Ajouter une équipe</h2>${champ('nom-equipe','Nom de l’équipe *',{obligatoire:true})}<label><input type="checkbox" name="fait_la_tournee">Fait la tournée</label><button class="principal">Ajouter l’équipe</button></form>`;
   async function mutation(action,data){if(!enLigne())throw new Error('Il faut du réseau pour la gestion');const r=await appel(action,data);if(r.code_nouveau)await montrerCode(r.code_nouveau);await rafraichir();if(onglet==='Gestion'&&droit(session?.peut_gerer))await gestion();return r;}
   function branche(form,fn){form.onsubmit=async e=>{e.preventDefault();const b=e.submitter;b.disabled=true;try{await fn(new FormData(form));}catch(e){erreur(e);}finally{b.disabled=false;}};}
   const oui=(fd,k)=>fd.has(k)?'OUI':'NON';
-  branche($('ajout-agent'),fd=>mutation('agent_ajouter',{nom:texte(fd.get('nom-agent')),peut_extraire:oui(fd,'peut_extraire'),peut_gerer:oui(fd,'peut_gerer')}));
+  branche($('ajout-agent'),fd=>mutation('agent_ajouter',{nom:texte(fd.get('nom-agent')),peut_extraire:oui(fd,'peut_extraire'),peut_gerer:oui(fd,'peut_gerer'),peut_voir_situation:oui(fd,'peut_voir_situation')}));
   branche($('ajout-equipe'),fd=>mutation('equipe_ajouter',{nom:texte(fd.get('nom-equipe')),fait_la_tournee:oui(fd,'fait_la_tournee')}));
   for(const a of agents){
     const form=document.createElement('form');form.className='carte';
     const titre=document.createElement('h2');titre.textContent=`${a.nom} · ${droit(a.actif)?'actif':'retiré'}`;form.append(titre);
     const info=document.createElement('p');info.textContent=`Code : …${a.code_fin||a.code_4||a.code_dernier4||''}`;form.append(info);
-    for(const [k,label]of [['peut_extraire','Peut extraire'],['peut_gerer','Peut gérer']]){const l=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.name=k;input.checked=droit(a[k]);input.disabled=!droit(a.actif);l.append(input,label);form.append(l);}
+    for(const [k,label]of [['peut_extraire','Peut extraire'],['peut_gerer','Peut gérer'],['peut_voir_situation','Peut voir les situations']]){const l=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.name=k;input.checked=droit(a[k]);input.disabled=!droit(a.actif);l.append(input,label);form.append(l);}
     if(droit(a.actif)){
-      for(const [label,action]of [['Enregistrer les droits','droits'],['Nouveau code','nouveau'],['Retirer l’agent','retirer']]){const b=document.createElement('button');b.type='button';b.textContent=label;b.onclick=async()=>{if(action!=='droits'&&!confirm(`${label} : ${a.nom} ?`))return;b.disabled=true;try{const fd=new FormData(form);await mutation(action==='retirer'?'agent_retirer':'agent_modifier',{nom:a.nom,...(action==='retirer'?{}:{peut_extraire:oui(fd,'peut_extraire'),peut_gerer:oui(fd,'peut_gerer'),nouveau_code:action==='nouveau'?'OUI':'NON'})});}catch(e){erreur(e);}finally{b.disabled=false;}};form.append(b);}
+      for(const [label,action]of [['Enregistrer les droits','droits'],['Nouveau code','nouveau'],['Retirer l’agent','retirer']]){const b=document.createElement('button');b.type='button';b.textContent=label;b.onclick=async()=>{if(action!=='droits'&&!confirm(`${label} : ${a.nom} ?`))return;b.disabled=true;try{const fd=new FormData(form);await mutation(action==='retirer'?'agent_retirer':'agent_modifier',{nom:a.nom,...(action==='retirer'?{}:{peut_extraire:oui(fd,'peut_extraire'),peut_gerer:oui(fd,'peut_gerer'),peut_voir_situation:oui(fd,'peut_voir_situation'),nouveau_code:action==='nouveau'?'OUI':'NON'})});}catch(e){erreur(e);}finally{b.disabled=false;}};form.append(b);}
     }
     form.onsubmit=e=>e.preventDefault();$('agents').append(form);
   }
@@ -348,13 +373,14 @@ async function actionLot(action){
   try{await envoyerActions();if(enLigne())await rafraichir();}catch(e){erreur(e);}
 }
 function afficherTournee(){
+  situationOuverte=null;
   arreterGPS();visiteEnCours=null;
   if(!jourCorrect())return;
   const avecLot=droit(equipeActuelle()?.fait_la_tournee);
   const r=avecLot?lotAffiche():{lot:[],pris:[]},pris=r.pris;
   const lot=r.lot.filter(f=>f.etat!=='RETIRE'&&!noteAujourdhui(f,lotGarde,visitesLocales(),jour()));
   $('contenu').innerHTML=`<h1>Tournée</h1><p>Lot du ${echapper(lotGarde.date_lot?lotGarde.date_lot.split('-').reverse().join('/'):'jour non encore téléchargé')}${lotGarde.date_lot&&lotGarde.date_lot!==jour()?' · Dernier lot conservé hors ligne':''}</p><p>${actions.filter(a=>a.agent===session.agent).length} action(s) à envoyer</p><div class="chiffres-lot"><div class="carte"><strong>${lot.filter(f=>f.etat!=='RETIRE').length}</strong><span>dans le lot</span></div><div class="carte active"><strong>${lot.filter(f=>f.etat!=='RETIRE'&&pris.some(p=>p.nif===f.nif&&p.agent===session.agent)).length}</strong><span>à moi</span></div><div class="carte"><strong>${visitesActives(visitesLocales()).filter(v=>v.agent===session.agent&&v.date.slice(0,10)===jour()).length}</strong><span>faits</span></div></div><div id="arrivee" role="status"></div><h2>Le lot du jour</h2><div id="liste-lot"></div><div class="actions"><button id="prendre" class="principal">Je prends</button><button id="lacher">Lâcher</button><button id="retirer">Retirer de la liste</button></div><h2>Mes ajouts</h2><div id="mes-ajouts"></div><button id="retirer-termines">Retirer les terminés</button><h2>Mon trajet</h2><button id="recalculer">Recalculer</button><div id="trajet"></div><h2>Résultats notés aujourd’hui</h2><div id="visites-jour"></div>`;
-  for(const f of lot.filter(f=>f.etat!=='RETIRE')){const p=pris.find(p=>p.nif===f.nif),div=document.createElement('article');div.className='carte lot-tuile'+(p?(p.agent===session.agent?' active':' autre'):'');div.innerHTML=`<div class="ligne-nom"><label><input type="checkbox" name="selection-lot" value="${echapper(f.nif)}">${echapper(f.raison||f.responsable||f.nif)}</label>${p?.agent===session.agent?'<span class="a-moi">À MOI</span>':''}</div><p class="sous">${echapper(f.adresse||f.rue||'')}${f.attente_jours>=1?' · attend '+Number(f.attente_jours)+' jour(s)':''}</p><p class="sous">${echapper(RESULTATS[f.dernier_resultat]?.[0]||f.dernier_resultat||'À visiter')}</p>${p&&p.agent!==session.agent?`<p class="pris-autre">Pris par ${echapper(p.agent)}</p>`:''}<div class="lot-bas"><span class="rar">${echapper(Number(f.rar||0).toLocaleString('fr-FR'))} <small>FCFA</small></span><button class="principal">Noter</button></div>`;div.querySelector('button').onclick=()=>ouvrirVisite(f);$('liste-lot').append(div);}
+  for(const f of lot.filter(f=>f.etat!=='RETIRE')){const p=pris.find(p=>p.nif===f.nif),div=document.createElement('article');div.className='carte lot-tuile'+(p?(p.agent===session.agent?' active':' autre'):'');div.innerHTML=`<div class="ligne-nom"><label><input type="checkbox" name="selection-lot" value="${echapper(f.nif)}">${echapper(f.raison||f.responsable||f.nif)}</label>${p?.agent===session.agent?'<span class="a-moi">À MOI</span>':''}</div><p class="sous">${echapper(f.adresse||f.rue||'')}${f.attente_jours>=1?' · attend '+Number(f.attente_jours)+' jour(s)':''}</p><p class="sous">${echapper(RESULTATS[f.dernier_resultat]?.[0]||f.dernier_resultat||'À visiter')}</p>${p&&p.agent!==session.agent?`<p class="pris-autre">Pris par ${echapper(p.agent)}</p>`:''}<div class="lot-bas"><span class="rar">${echapper(Number(f.rar||0).toLocaleString('fr-FR'))} <small>FCFA</small></span><button class="principal">Noter</button></div>`;div.querySelector('button').onclick=()=>ouvrirVisite(f);boutonSituation(div.querySelector('.lot-bas'),f);$('liste-lot').append(div);}
   if(!lot.length)$('liste-lot').textContent=r.lot.some(f=>f.etat!=='RETIRE')?'Tous les contribuables du lot ont été notés aujourd’hui.':'Aucun contribuable dans le lot conservé.';
   for(const a of ['prendre','lacher','retirer'])$(a).onclick=()=>actionLot(a).catch(erreur);
   $('recalculer').onclick=()=>recalculerTrajet().catch(erreur);
@@ -379,6 +405,7 @@ async function recalculerTrajet(){
 function ouvrirVisite(f){
   arreterGPS();visiteEnCours=f;point=null;brouillonId=nouvelId();const id=brouillonId;
   $('contenu').innerHTML=`<button type="button" id="retour-lot" class="retour-lot">← Retour à la tournée</button><div class="carte"><h1>${echapper(f.raison||f.responsable||f.nif)}</h1><p>${echapper(f.adresse||f.rue||'')} · <b class="distance">${f.origine==='LIBRE'?'':echapper(Number(f.rar||0).toLocaleString('fr-FR'))+' FCFA'}</b></p></div><form id="fiche" novalidate><h2>Résultat de la visite</h2><div id="boutons-resultats" class="actions"></div><input type="hidden" id="resultat" name="resultat"><div id="champs-visite" class="carte"></div><section class="carte gps-tuile"><h2>GPS sur place</h2><p id="gps-etat" role="status"></p><button type="button" class="principal" id="garder-gps" disabled>Garder ce point</button><button type="button" id="reprendre-gps">Reprendre le GPS</button></section><div id="erreurs" role="alert" tabindex="-1"></div><div class="actions enregistrement"><button class="principal" id="enregistrer-visite">Enregistrer le résultat</button></div></form>`;
+  boutonSituation($('contenu').querySelector('.carte'),f);
   $('fiche').oninput=()=>{$('fiche').dataset.modifie='oui';};
   for(const code of resultatsVisibles(session.reglages||{})){const b=document.createElement('button');b.type='button';b.innerHTML=icone(ICONES_RESULTATS[code])+`<span>${echapper(RESULTATS[code][0])}</span>`;b.setAttribute('aria-pressed','false');b.onclick=()=>{const precedent=$('resultat').value;if(precedent&&precedent!==code&&!confirm('Changer le résultat et effacer ses champs ?'))return;$('resultat').value=code;const sansGPS=SANS_GPS.includes(code);document.querySelector('.gps-tuile').hidden=sansGPS;if(sansGPS){arreterGPS();point=null;}else if(!gpsEnCours&&!point)gps().catch(erreur);$('fiche').dataset.modifie='oui';for(const x of $('boutons-resultats').children){x.classList.toggle('principal',x===b);x.setAttribute('aria-pressed',String(x===b));}$('champs-visite').innerHTML=(['FICHE_REMISE','ACTE_REMIS'].includes(code)?champ('remise_a','Remise à *',{choix:['RESPONSABLE','EMPLOYE','AUTRE']}):'')+(code==='ACTE_REMIS'?'<h3>Acte remis</h3><fieldset><legend>Actes remis *</legend>'+[['AMR','AMR'],['MED','Mise en demeure'],['INVITATION','Invitation'],['AVIS','Avis'],['AUTRE','Autre']].map(([v,l])=>`<label><input type="checkbox" name="actes" value="${v}">${l}</label>`).join('')+'</fieldset>'+champ('acte_autre','Précisez si Autre'):'')+(code==='A_PAYE'?champ('montant','Montant FCFA (facultatif)',{chiffres:true}):'')+(code==='PROMESSE'?'<label for="date_promise">Date promise *</label><input id="date_promise" name="date_promise" type="date">':'')+(['FERMETURE_OTR','REOUVERTURE'].includes(code)?champ('cadenas','Numéros de cadenas, séparés par ;',{aire:true}):'')+(code==='DEMENAGE'?champ('adresse','Nouvelle adresse (facultatif)'):'')+champ('observation',`Observation${['REFUS','INTROUVABLE'].includes(code)?' *':''}`,{aire:true});};$('boutons-resultats').append(b);}
   const gps=async()=>{arreterGPS();point=null;afficherPoint();const t=ecouterGPS({...(factice?{geolocalisation:gpsFactice}:{}),objectif:reglage('GPS_OBJECTIF_M'),affiner:reglage('GPS_AFFINER_S'),duree:reglage('GPS_DUREE_S'),surMesure:(p,note)=>{if(id===brouillonId&&visiteEnCours){point=p;afficherPoint(note);}}});gpsEnCours=t;const r=await t.promesse;if(gpsEnCours!==t)return;gpsEnCours=null;point=r.point;afficherPoint(r.raison);};
@@ -398,7 +425,7 @@ let enregistrement=null,rechargement=false;
 // Une nouvelle version prend la main dès qu’elle est prête, mais jamais pendant une saisie.
 function appliquerVersion(){
   const attente=enregistrement?.waiting;
-  if(!attente||rechargement||!navigator.serviceWorker.controller||$('fiche')?.dataset.modifie)return;
+  if(!attente||rechargement||!navigator.serviceWorker.controller||ficheCourante()?.dataset.modifie)return;
   rechargement=true;attente.postMessage('ACTIVER');
 }
 function chercherVersion(){if(enregistrement&&enLigne())enregistrement.update().catch(()=>{});appliquerVersion();}
@@ -414,7 +441,7 @@ async function serviceWorker(){
 }
 async function demarrer(){
   if(factice){document.body.classList.add('factice');({repondre:simuler,gpsFactice}=await import('../essais/telephone/boite-factice.js'));}
-  db=await ouvrirStockage(factice,new URL(location.href).searchParams.get('carnet')||'');session=await db.lire('session');equipe=await db.lire('equipe');recenses=await db.lire('recenses')||[];connus=await db.lire('connus')||[];lotGarde=await db.lire('lot')||lotGarde;actions=await db.lire('actions')||[];await chargerFiches();
+  db=await ouvrirStockage(factice,new URL(location.href).searchParams.get('carnet')||'');session=await db.lire('session');equipe=await db.lire('equipe');recenses=await db.lire('recenses')||[];connus=await db.lire('connus')||[];lotGarde=await db.lire('lot')||lotGarde;actions=await db.lire('actions')||[];if(!droit(session?.peut_voir_situation))await effacerSituations();await chargerFiches();
   $('version').textContent=`v${VERSION}${factice?' · Données fictives':''}`;
   $('changer').onclick=()=>{if(protegerBrouillon())choisirEquipe().catch(erreur);};
   $('envoyer').onclick=envoyer;
@@ -424,9 +451,9 @@ async function demarrer(){
 }
 window.addEventListener('online',()=>{entete();rafraichir().then(envoyer).catch(erreur);if(onglet==='Gestion')gestion().catch(erreur);if(onglet==='Extraire')afficherExtraction();});
 window.addEventListener('offline',()=>{entete();if(onglet==='Gestion')gestion().catch(erreur);if(onglet==='Extraire')afficherExtraction();});
-document.addEventListener('visibilitychange',()=>{ajusterChauffe();if(document.visibilityState==='visible')chercherVersion();if(document.visibilityState==='visible'&&session){if(!jourCorrect()&&!accesBureau()&&!$('fiche')?.dataset.modifie)choisirEquipe().catch(erreur);if(enLigne())rafraichir().then(envoyer).catch(erreur);}});
-setInterval(()=>{ajusterChauffe();chercherVersion();if(!session)return;if(!jourCorrect()&&!accesBureau()&&!choixJour&&!$('fiche')?.dataset.modifie)choisirEquipe().catch(erreur);if(enLigne())rafraichir().then(envoyer).catch(erreur);},120000);
+document.addEventListener('visibilitychange',()=>{ajusterChauffe();if(document.visibilityState==='visible')chercherVersion();if(document.visibilityState==='visible'&&session){if(!jourCorrect()&&!accesBureau()&&!ficheCourante()?.dataset.modifie)choisirEquipe().catch(erreur);if(enLigne())rafraichir().then(envoyer).catch(erreur);}});
+setInterval(()=>{ajusterChauffe();chercherVersion();if(!session)return;if(!jourCorrect()&&!accesBureau()&&!choixJour&&!ficheCourante()?.dataset.modifie)choisirEquipe().catch(erreur);if(enLigne())rafraichir().then(envoyer).catch(erreur);},120000);
 window.addEventListener('pagehide',()=>{pageQuittee=true;arreterGPS();ajusterChauffe();});
 window.addEventListener('pageshow',()=>{pageQuittee=false;ajusterChauffe();});
-window.addEventListener('beforeunload',e=>{if($('fiche')?.dataset.modifie){e.preventDefault();e.returnValue='';}});
+window.addEventListener('beforeunload',e=>{if(ficheCourante()?.dataset.modifie){e.preventDefault();e.returnValue='';}});
 demarrer().catch(e=>{erreur(e);if(!db)$('contenu').textContent='Le carnet local ne peut pas être ouvert. Autorisez le stockage dans ce navigateur, puis rechargez la page.';});
