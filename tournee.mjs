@@ -11,6 +11,7 @@ export function indexerRecherche(recenses,connus,locales=[]){
 export function chercher(index,requete){const mots=normaliser(requete).split(/\s+/).filter(Boolean).map(m=>/^[\d()+.-]+$/.test(m)?chiffres(m):m).filter(Boolean),resultats=[];let total=0;for(const x of index)if(mots.every(m=>x.texte.includes(m))){total++;if(resultats.length<50)resultats.push(x.fiche);}return {total,resultats};}
 export function miseAJour(f,id=nouvelId()) {const r={id,type:'RECENSEMENT',gps:'AUCUN',immatricule:chiffres(f.nif)?'OUI':'NE SAIT PAS'};for(const k of ['nif','raison','responsable','telephone','activite','rue','immeuble','niveau','porte'])r[k]=f[k]||'';return r;}
 export const RESULTATS={FICHE_REMISE:['Fiche remise',true,true],ACTE_REMIS:['Acte remis',true,true],A_PAYE:['A payé (preuve vue)',true,true],PROMESSE:['Promesse de paiement',true,true],ABSENT:['Absent, à repasser',false,false],TROUVEE_FERMEE:['Trouvée fermée',false,false],FERMETURE_OTR:['Fermeture par l’OTR',true,true],REFUS:['Refus de recevoir',true,true],DEMENAGE:['A déménagé',true,false],INTROUVABLE:['Introuvable',true,false],REPORTE:['Reporté',false,false],REOUVERTURE:['Réouverture',false,false]};
+export const SANS_GPS=['INTROUVABLE','DEMENAGE','REPORTE'];
 export const resultatsVisibles=r=>Object.keys(RESULTATS).filter(k=>k!=='REOUVERTURE'||r.REOUVERTURE_VISIBLE==='OUI');
 export const numeros=v=>[...new Set((Array.isArray(v)?v:String(v||'').split(/[;,\n]/)).map(n=>texte(n).replace(/\s/g,'')).filter(Boolean))];
 export function localisation(resultat,connu,point,reponse,seuil=50){if(!RESULTATS[resultat]?.[2]||!pointValide(point))return '';if(!pointValide(connu))return 'NOUVELLE';if(distance(connu,point)<=seuil)return 'CONFIRMEE';return reponse===true?'CORRIGEE':reponse===false?'NON':null;}
@@ -27,8 +28,17 @@ export function validerVisite(f){const e=[];for(const k of ['id','date','agent',
   if(['REFUS','INTROUVABLE'].includes(f.resultat)&&!texte(f.observation))e.push('Renseignez l’observation.');
   if(f.montant!==''&&f.montant!=null&&(!Number.isInteger(Number(f.montant))||Number(f.montant)<0))e.push('Le montant doit être un entier positif.');
   if(!['AUCUN','BON','IMPRECIS'].includes(f.gps)||f.gps!=='AUCUN'&&(!pointValide(f)||!Number.isFinite(f.precision)||f.precision<0))e.push('GPS incorrect.');return e;}
-export function annulation(f,id=nouvelId(),date=dateLocale()){return {...f,id,date,annule:'OUI',annule_id:f.id,gps:'AUCUN',lat:'',lon:'',precision:'',localisation:'',envoyee:false,refus:''};}
+export function annulation(f,id=nouvelId(),date=dateLocale()){return {...f,id,date,annule:'OUI',annule_id:f.id,gps:'AUCUN',lat:'',lon:'',precision:'',localisation:'',envoyee:false,envoyee_le:undefined,refus:''};}
 export function visitesActives(visites){const annules=new Set(visites.filter(v=>v.annule==='OUI').map(v=>v.annule_id));return visites.filter(v=>v.annule!=='OUI'&&!annules.has(v.id)).sort((a,b)=>a.date.localeCompare(b.date)||a.id.localeCompare(b.id));}
+// Les dates de réception et d'envoi sont des ISO UTC avec millisecondes.
+export function noteAujourdhui(ligne,lotGarde,visitesLocales,jour){
+  const ids=new Set(lotGarde.jour_visites===jour?(ligne.visites_jour||[]):[]);
+  const ancienneBoite=!Array.isArray(ligne.visites_jour);
+  const recentes=visitesLocales.filter(v=>v.type==='TOURNEE'&&v.origine!=='LIBRE'&&v.nif===ligne.nif&&(ancienneBoite||!v.envoyee||!v.envoyee_le||!lotGarde.recu_le||v.envoyee_le>lotGarde.recu_le));
+  for(const v of recentes)if(v.annule!=='OUI'&&v.date?.slice(0,10)===jour)ids.add(v.id);
+  for(const v of recentes)if(v.annule==='OUI')ids.delete(v.annule_id);
+  return ids.size>0;
+}
 export function etatVisites(visites){const actives=visitesActives(visites),v=dernier(actives);return {etat:actives.some(v=>RESULTATS[v.resultat]?.[1])?'TERMINE':'A_VISITER',dernier_resultat:v?.resultat||''};}
 export function appliquerVisitesLocales(ligne,visites){
   const attente=visites.filter(v=>!v.envoyee);if(!attente.length)return ligne;
@@ -62,7 +72,7 @@ export function trajet(depart,points){
     const c=longueur(depart,ordre);if(c<cout){meilleur=ordre;cout=c;}
   }return meilleur;
 }
-export function mesPoints(lot,pris,agent,ajouts=[],visites=[]){const miens=new Set(pris.filter(p=>p.agent===agent).map(p=>p.nif));const liste=[...lot.filter(f=>miens.has(f.nif)&&!['TERMINE','RETIRE'].includes(f.etat)),...ajouts.map(f=>({...f,...etatAjout(f,visites,agent),origine:'LIBRE'})).filter(f=>f.etat!=='TERMINE')];return {points:liste.filter(f=>pointValide(f)&&f.gps!=='IMPRECIS'),aVerifier:liste.filter(f=>!pointValide(f)||f.gps==='IMPRECIS')};}
+export function mesPoints(lot,pris,agent,ajouts=[],visites=[],lotGarde={},jour=dateLocale().slice(0,10)){const miens=new Set(pris.filter(p=>p.agent===agent).map(p=>p.nif));const liste=[...lot.filter(f=>miens.has(f.nif)&&!['TERMINE','RETIRE'].includes(f.etat)&&!noteAujourdhui(f,lotGarde,visites,jour)),...ajouts.map(f=>({...f,...etatAjout(f,visites,agent,jour),origine:'LIBRE'})).filter(f=>!f.cache)];return {points:liste.filter(f=>pointValide(f)&&f.gps!=='IMPRECIS'),aVerifier:liste.filter(f=>!pointValide(f)||f.gps==='IMPRECIS')};}
 export function liensMaps(depart,points,etapes=3){const taille=Math.min(3,Math.max(0,Math.floor(Number(etapes)||0)))+1,liens=[];let origine=depart;const coord=p=>`${+Number(p.lat).toFixed(7)},${+Number(p.lon).toFixed(7)}`;for(let i=0;i<points.length;i+=taille){const partie=points.slice(i,i+taille),fin=dernier(partie);liens.push(`https://www.google.com/maps/dir/?api=1&origin=${coord(origine)}&destination=${coord(fin)}&waypoints=${partie.slice(0,-1).map(coord).join('|')}&travelmode=walking`);origine=fin;}return liens;}
 export function appliquerActions(lot,pris,actions,agent,date){lot=lot.map(f=>({...f}));pris=pris.map(p=>({...p}));for(const a of actions.filter(a=>a.date===date)){for(const nif of a.nifs){if(a.action==='retirer'){const f=lot.find(f=>f.nif===nif);if(f)f.etat='RETIRE';}else{pris=pris.filter(p=>p.nif!==nif);if(a.action==='prendre')pris.push({nif,equipe:a.equipe,agent:a.agent||agent,heure:a.heure});}}}return {lot,pris};}
 
@@ -76,7 +86,7 @@ export function ajouterAjout(ajouts,f,quand=dateLocale()){
   if(f.gps)a.gps=f.gps;
   return [...ajouts,a];
 }
-export function etatAjout(ajout,visites,agent){
+export function etatAjout(ajout,visites,agent,jour=dateLocale().slice(0,10)){
   const actives=visitesActives(visites.filter(v=>v.origine==='LIBRE'&&v.agent===agent&&(v.cle||cleAjout({...v,id:undefined}))===ajout.cle));
-  const v=dernier(actives);return {etat:RESULTATS[v?.resultat]?.[1]?'TERMINE':'A_VISITER',dernier_resultat:v?.resultat||'',...(v?.gps==='IMPRECIS'?{gps:'IMPRECIS'}:{})};
+  const v=dernier(actives);return {cache:!!RESULTATS[v?.resultat]?.[1]||actives.some(v=>v.date.slice(0,10)===jour),etat:RESULTATS[v?.resultat]?.[1]?'TERMINE':'A_VISITER',dernier_resultat:v?.resultat||'',...(v?.gps==='IMPRECIS'?{gps:'IMPRECIS'}:{})};
 }

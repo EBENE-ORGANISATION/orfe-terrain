@@ -65,8 +65,8 @@ export function validerFiche(f) {
   if(f.gps!=='AUCUN'&&(!pointValide(f)||!Number.isFinite(f.precision)||f.precision<0)) erreurs.push('Point GPS incorrect.');
   return erreurs;
 }
-export function accuser(file,reponse) {
+export function accuser(file,reponse,quand=new Date().toISOString()) {
   const ids=new Set([...(reponse.recus||[]),...(reponse.deja||[])]);
   const refus=new Map((reponse.refuses||[]).map(f=>[f.id,f.raison]));
-  return file.map(f=>({...f,envoyee:f.envoyee||ids.has(f.id),refus:ids.has(f.id)?'':refus.get(f.id)||f.refus||''}));
+  return file.map(f=>({...f,envoyee:f.envoyee||ids.has(f.id),...(ids.has(f.id)?{envoyee_le:f.envoyee_le||quand}:{}),refus:ids.has(f.id)?'':refus.get(f.id)||f.refus||''}));
 }
