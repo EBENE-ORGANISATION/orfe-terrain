@@ -31,3 +31,5 @@ html{scroll-padding-top:90px;scroll-padding-bottom:calc(var(--bas) + 100px)}
 .situation-montants th,.situation-montants td{padding:12px 3px;text-align:right;border-bottom:1px solid #e1e5ec;white-space:nowrap}
 .situation-montants th:first-child{text-align:left}
 .situation-montants tfoot{font-weight:700;color:#142a48}
+
+.rar-recherche{font-size:.875rem;}
