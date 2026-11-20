@@ -33,3 +33,4 @@ html{scroll-padding-top:90px;scroll-padding-bottom:calc(var(--bas) + 100px)}
 .situation-montants tfoot{font-weight:700;color:#142a48}
 
 .rar-recherche{font-size:.875rem;}
+#recherche-cadenas{margin-bottom:12px}#registre-cadenas h2{margin-top:0}

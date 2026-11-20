@@ -14,6 +14,24 @@ export const RESULTATS={FICHE_REMISE:['Fiche remise',true,true],ACTE_REMIS:['Act
 export const SANS_GPS=['INTROUVABLE','DEMENAGE','REPORTE'];
 export const resultatsVisibles=r=>Object.keys(RESULTATS).filter(k=>k!=='REOUVERTURE'||r.REOUVERTURE_VISIBLE==='OUI');
 export const numeros=v=>[...new Set((Array.isArray(v)?v:String(v||'').split(/[;,\n]/)).map(n=>texte(n).replace(/\s/g,'')).filter(Boolean))];
+export function releveCadenas(reponse,ancien,quand=new Date().toISOString()){
+  if(Array.isArray(reponse.cadenas_poses))return {cadenas_poses:reponse.cadenas_poses,cadenas_recu_le:quand};
+  const {cadenas_poses,cadenas_recu_le}=ancien;
+  return {cadenas_poses,cadenas_recu_le};
+}
+export const estOperationCadenas=v=>v.resultat==='FERMETURE_OTR'||v.resultat==='REOUVERTURE';
+export function operationsCadenas(visites,agent){
+  return visitesActives(visites).filter(v=>!v.envoyee&&v.agent===agent&&estOperationCadenas(v));
+}
+export function lireRegistreCadenas(poses,requete){
+  const compacte=v=>normaliser(v).replace(/\s/g,'');
+  const recherche=compacte(requete),numero=compacte(numeros(requete)[0]);
+  const lignes=poses.filter(p=>!recherche||(numero&&compacte(numeros([p.numero])[0]).includes(numero))
+    ||compacte(p.raison).includes(recherche)||compacte(p.nif).includes(recherche))
+    .sort((a,b)=>String(b.pose_le||'').localeCompare(String(a.pose_le||'')));
+  const nombre=new Set(poses.map(p=>p.nif?'N:'+p.nif:'R:'+normaliser(p.raison))).size;
+  return {lignes,nombre};
+}
 export function localisation(resultat,connu,point,reponse,seuil=50){if(!RESULTATS[resultat]?.[2]||!pointValide(point))return '';if(!pointValide(connu))return 'NOUVELLE';if(distance(connu,point)<=seuil)return 'CONFIRMEE';return reponse===true?'CORRIGEE':reponse===false?'NON':null;}
 export function validerVisite(f){const e=[];for(const k of ['id','date','agent','equipe',...(f.origine==='LIBRE'?[]:['nif','lot'])])if(!f[k])e.push(`Renseignez ${k}.`);if(!RESULTATS[f.resultat])e.push('Résultat inconnu.');if(f.type!=='TOURNEE')e.push('Type incorrect.');if(f.annule==='OUI'){if(!f.annule_id)e.push('Visite à annuler manquante.');return e;}
   if(['FICHE_REMISE','ACTE_REMIS'].includes(f.resultat)&&!['RESPONSABLE','EMPLOYE','AUTRE'].includes(f.remise_a))e.push('Choisissez à qui la fiche est remise.');
