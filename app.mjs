@@ -4,6 +4,7 @@ import {ouvrirStockage} from './stockage.mjs';
 import {ecouterGPS} from './gps.mjs';
 import {poster,carteRues} from './transport.mjs';
 import {SANS_GPS,noteAujourdhui,cleAjout,ajouterAjout,etatAjout,indexerRecherche,lireConnus,chercher,miseAJour,distance,RESULTATS,resultatsVisibles,numeros,localisation,validerVisite,annulation,appliquerVisitesLocales,visitesActives,avertissementsCadenas,mesPoints,trajet,liensMaps,appliquerActions} from './tournee.mjs';
+import {lireLieux,indexerLieux,chercherLieux} from './tournee.mjs';
 import {pointValide} from './metier.mjs';
 import {releveCadenas,lireRegistreCadenas,estOperationCadenas,operationsCadenas} from './tournee.mjs';
 import {resumeExtraction,milliers,nomExtraction,chargerOutils,creerExcel,creerPDF,telecharger} from './extraction.mjs';
@@ -36,7 +37,30 @@ const rueCarte=carteRues();
 let simuler,gpsFactice;
 let ajoutsParCode={},ajouts=[];
 let connus=[],indexRecherche=[],lotGarde={lot:[],pris:[],cadenas_poses:[]},actions=[],depart=null,ordre=[],chauffe=null,pageQuittee=false,dernierePosition=0,visiteEnCours=null,actionsEnvoi=false;
-function reindexer(){indexRecherche=indexerRecherche(recenses,connus,fiches.filter(f=>f.agent===session?.agent));}
+let lieuxParNif=new Map(),lieux_version='',indexLieux=[],filtreLieux=false;
+function reindexer(){
+  indexRecherche=indexerRecherche(recenses,connus,fiches.filter(f=>f.agent===session?.agent));
+  indexLieux=indexerLieux(lieuxParNif,connus);
+}
+async function rafraichirLieux(){
+  const aujourdHui=jour();
+  if(await db.lire('lieux_demande_jour')===aujourdHui)return;
+  const r=await appel('lieux',{version:lieux_version});
+  if(r?.ok!==true||r.absent)return;
+  if(r.inchange!==true){
+    const nouveaux=lireLieux(r.lignes);
+    if(!nouveaux||typeof r.version!=='string'||!r.version)return;
+    await db.garder('lieux',{lieux_version:r.version,lignes:r.lignes});
+    lieux_version=r.version;
+    lieuxParNif=nouveaux;
+    for(const zone of document.querySelectorAll('.ses-lieux')){
+      const ouvert=zone.querySelector('details')?.open;
+      zone.innerHTML=listeLieux(zone.dataset.nif);
+      if(ouvert&&zone.firstElementChild)zone.firstElementChild.open=true;
+    }
+  }else if(!lieux_version)return;
+  await db.garder('lieux_demande_jour',aujourdHui);
+}
 async function garderCadenas(r){if(Array.isArray(r.cadenas_poses)){lotGarde={...lotGarde,...releveCadenas(r,lotGarde)};await db.garder('lot',lotGarde);}}
 async function effacerSituations(){
   const ouverte=situationOuverte;situationOuverte=null;
@@ -77,7 +101,7 @@ function ouvrirSituation(f,s){
   const contenu=[...$('contenu').childNodes];situationOuverte={contenu,visite,libre:f.origine==='LIBRE'};
   const date=v=>String(v||'').slice(0,10).split('-').reverse().join('/');
   const montant=v=>echapper(Number(v).toLocaleString('fr-FR'));
-  $('contenu').innerHTML=`<section id="situation"><button id="retour-situation" type="button">← Retour</button><div class="carte"><h1>${echapper(f.raison||f.responsable||f.nif)}</h1><p>NIF ${echapper(f.nif)}</p><p class="sous">Situation au ${date(s.au)} à ${echapper(s.au.slice(11,16))}, calculée par ORFE</p></div><div class="carte situation-montants"><p class="sous">Montants en FCFA</p><table><thead><tr><th>Exercice</th><th>Imposé</th><th>Versé</th><th>Reste</th></tr></thead><tbody>${s.exercices.map(e=>`<tr><th scope="row">${echapper(e.an)}</th><td>${montant(e.impose)}</td><td>${montant(e.verse)}</td><td>${montant(e.rar)}</td></tr>`).join('')}</tbody><tfoot><tr><th scope="row" colspan="3">Total ORFE</th><td>${montant(s.total)}</td></tr></tfoot></table>${!s.exercices.length?'<p>Aucun exercice avec montant.</p>':''}</div><div class="carte"><h2>Derniers actes</h2>${s.actes.map(a=>`<p><span class="sous">${date(a.date)}</span><br><strong>${echapper(a.libelle)}</strong>${a.montant===''?'':`<br>${montant(a.montant)} FCFA`}</p>`).join('')||'<p>Aucun acte transmis.</p>'}</div><div class="carte"><h2>Dernières démarches</h2>${(s.demarches||[]).map(d=>`<p><span class="sous">${date(d.date)}</span><br><strong>${echapper(d.libelle)}</strong></p>`).join('')||'<p>Aucune démarche transmise.</p>'}</div></section>`;
+  $('contenu').innerHTML=`<section id="situation"><button id="retour-situation" type="button">← Retour</button><div class="carte"><h1>${echapper(f.raison||f.responsable||f.nif)}</h1><p>NIF ${echapper(f.nif)}</p><p class="sous">Situation au ${date(s.au)} à ${echapper(s.au.slice(11,16))}, calculée par ORFE</p></div>${sesLieux(f.nif)}<div class="carte situation-montants"><p class="sous">Montants en FCFA</p><table><thead><tr><th>Exercice</th><th>Imposé</th><th>Versé</th><th>Reste</th></tr></thead><tbody>${s.exercices.map(e=>`<tr><th scope="row">${echapper(e.an)}</th><td>${montant(e.impose)}</td><td>${montant(e.verse)}</td><td>${montant(e.rar)}</td></tr>`).join('')}</tbody><tfoot><tr><th scope="row" colspan="3">Total ORFE</th><td>${montant(s.total)}</td></tr></tfoot></table>${!s.exercices.length?'<p>Aucun exercice avec montant.</p>':''}</div><div class="carte"><h2>Derniers actes</h2>${s.actes.map(a=>`<p><span class="sous">${date(a.date)}</span><br><strong>${echapper(a.libelle)}</strong>${a.montant===''?'':`<br>${montant(a.montant)} FCFA`}</p>`).join('')||'<p>Aucun acte transmis.</p>'}</div><div class="carte"><h2>Dernières démarches</h2>${(s.demarches||[]).map(d=>`<p><span class="sous">${date(d.date)}</span><br><strong>${echapper(d.libelle)}</strong></p>`).join('')||'<p>Aucune démarche transmise.</p>'}</div></section>`;
   $('retour-situation').onclick=()=>{const retour=situationOuverte;situationOuverte=null;if(!retour)return;visiteEnCours=retour.visite;$('contenu').replaceChildren(...retour.contenu);afficherPoint();};
   scrollTo(0,0);
 }
@@ -340,6 +364,8 @@ async function rafraichir(){
       await db.garder('connus_demande_jour',jour());
       try{const r=await appel('connus',{version:await db.lire('connus_version')||''});if(!r.inchange){connus=lireConnus(r);await db.garder('connus',connus);}await db.garder('connus_version',r.version);}catch(e){erreur(e);}
     }
+    try{await rafraichirLieux();}catch(e){erreur(e);}
+    if(!sessionCourante(code,generation))return;
     reindexer();
     if(droit(equipeActuelle()?.fait_la_tournee)){const equipeLot=equipe.nom;const nouveau=await appel('lot',{},()=>equipe?.nom===equipeLot);if(!sessionCourante(code,generation))return;if(!droit(session.peut_voir_situation))delete nouveau.situations;const recu_le=new Date().toISOString();lotGarde={...nouveau,recu_le,...releveCadenas(nouveau,lotGarde,recu_le)};await db.garder('lot',lotGarde);if(!nouveau.situations){if(situationOuverte&&!situationOuverte.libre)$('retour-situation')?.click();document.querySelectorAll('.voir-situation-lot').forEach(b=>b.remove());}}
     if(!sessionCourante(code,generation))return;
@@ -359,7 +385,7 @@ async function rafraichir(){
       await purgerAjouts();
     }
     if(cadenasOuverts)rendreCadenas();
-    else if(!choixJour&&!situationOuverte&&!ficheCourante()?.dataset.modifie){if(onglet==='Recherche')afficherRecherche();if(onglet==='Tournée'&&!visiteEnCours)afficherTournee();}
+    else if(!choixJour&&!situationOuverte&&!ficheCourante()?.dataset.modifie){if(onglet==='Recherche'&&$('recherche'))afficherRecherche();if(onglet==='Tournée'&&!visiteEnCours)afficherTournee();}
   })();
   try{await rafraichissement;}finally{rafraichissement=null;}
 }
@@ -396,6 +422,20 @@ async function gestion(){
   for(const e of session.equipes||[]){const form=document.createElement('form');form.className='carte';const id=`eq-${nouvelId()}`;form.innerHTML=`${champ(id,'Nom',{valeur:e.nom,obligatoire:true})}<label><input type="checkbox" name="tournee" ${droit(e.fait_la_tournee)?'checked':''}>Fait la tournée</label><button>Enregistrer l’équipe</button>`;branche(form,fd=>mutation('equipe_modifier',{nom:e.nom,nouveau_nom:texte(fd.get(id)),fait_la_tournee:oui(fd,'tournee')}));const b=document.createElement('button');b.type='button';b.textContent='Retirer l’équipe';b.onclick=async()=>{if(!confirm(`Retirer l’équipe ${e.nom} ?`))return;b.disabled=true;try{await mutation('equipe_retirer',{nom:e.nom});}catch(e){erreur(e);}finally{b.disabled=false;}};form.append(b);$('gestion-equipes').append(form);}
 }
 function lienItineraire(f){return pointValide(f)?`<a class="bouton" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${f.lat},${f.lon}&travelmode=walking">Itinéraire</a>`:'';}
+function listeLieux(nif){
+  const lieux=lieuxParNif.get(nif);
+  if(!lieux?.length)return '';
+  const types={BOUTIQUE:'Boutique',MAGASIN:'Magasin / dépôt',FERME:'Fermé','ANCIENNE ADRESSE':'Ancienne adresse'};
+  return `<details class="carte"><summary><strong>Ses lieux</strong> · ${lieux.length} lieu${lieux.length===1?' connu':'x connus'}</summary>
+    <ul>${lieux.map(l=>`<li class="${l.type==='FERME'||l.type==='ANCIENNE ADRESSE'?'lieu-ferme':''}">
+      <strong>${l.principal==='OUI'?'Adresse principale · ':''}${types[l.type]}</strong>
+      <div>${echapper([l.rue,l.immeuble,l.niveau&&'Niveau '+l.niveau,l.porte&&'Porte '+l.porte,l.quartier].filter(Boolean).join(' · '))}</div>
+      ${l.date?`<div>Dernière visite le ${echapper(l.date.split('-').reverse().join('/'))}</div>`:''}
+      ${lienItineraire(l)}</li>`).join('')}</ul></details>`;
+}
+function sesLieux(nif){
+  return nif?`<div class="ses-lieux" data-nif="${echapper(nif)}">${listeLieux(nif)}</div>`:'';
+}
 function sourceFiche(f){const d=(f.date||'').slice(0,10).split('-');return `${f.source||'Application'}${d.length===3?`${f.source==='Application'?', ':', visite du '}${d[2]}/${d[1]}`:''}`;}
 async function garderAjouts(liste){ajouts=liste;ajoutsParCode[session.code]=liste;await db.garder('ajouts',ajoutsParCode);if(droit(session?.peut_voir_situation))await purgerAjouts();}
 function boutonAjout(f){
@@ -417,15 +457,19 @@ function afficherAjouts(){
 function afficherRecherche(){
   visiteEnCours=null;
   const saisie=$('recherche')?.value||'';
-  $('contenu').innerHTML='<h1>Chercher</h1><div class="carte"><label for="recherche">NIF, nom, téléphone, activité ou rue</label><input id="recherche" type="search" autocomplete="off"><p id="total-recherche" role="status"></p></div><div id="resultats-recherche"></div>';
+  $('contenu').innerHTML='<h1>Chercher</h1><div class="carte"><label for="recherche">NIF, nom, téléphone, activité ou rue</label><input id="recherche" type="search" autocomplete="off"><label class="filtre-lieux"><input type="checkbox" id="filtre-lieux"> 2 lieux ou plus</label><p id="total-recherche" role="status"></p></div><div id="resultats-recherche"></div>';
   $('recherche').value=saisie;
-  const rendre=()=>{const r=chercher(indexRecherche,$('recherche').value);$('total-recherche').textContent=`${r.total} résultat(s)${r.total>50?' · 50 affichés':''}`;const zone=$('resultats-recherche');zone.replaceChildren();for(const f of r.resultats){const b=document.createElement('button');b.className='carte resultat';b.innerHTML=`<span class="ligne-nom"><strong>${echapper(f.raison||f.responsable||f.nif)}</strong>${pointValide(depart)&&pointValide(f)?`<span class="distance">${Math.round(distance(depart,f))} m</span>`:''}</span><span class="sous">${echapper([f.rue,f.immeuble,f.niveau,f.porte].filter(Boolean).join(' · '))}</span><span class="sous">${echapper([f.nif&&'NIF '+f.nif,f.telephone].filter(Boolean).join(' · '))}</span>${rarRecherche(f.nif)}<span class="source">${echapper(sourceFiche(f))}</span>`;b.onclick=()=>detailRecherche(f);const carte=document.createElement('article');carte.className='resultat-ajout';carte.append(b,boutonAjout(f));zone.append(carte);}};
+  $('filtre-lieux').checked=filtreLieux;
+  const rendre=()=>{
+    const requete=$('recherche').value;
+    const r=filtreLieux?chercherLieux(indexLieux,requete,droit(session?.peut_voir_situation)?rars.parNif:null):chercher(indexRecherche,requete);$('total-recherche').textContent=`${r.total} résultat(s)${r.total>50?' · 50 affichés':''}`;const zone=$('resultats-recherche');zone.replaceChildren();for(const f of r.resultats){const b=document.createElement('button');b.className='carte resultat';b.innerHTML=`<span class="ligne-nom"><strong>${echapper(f.raison||f.responsable||f.nif)}</strong>${pointValide(depart)&&pointValide(f)?`<span class="distance">${Math.round(distance(depart,f))} m</span>`:''}</span><span class="sous">${echapper([f.rue,f.immeuble,f.niveau,f.porte].filter(Boolean).join(' · '))}</span><span class="sous">${echapper([f.nif&&(!f.nombreLieux||f.raison)&&'NIF '+f.nif,f.telephone].filter(Boolean).join(' · '))}</span>${rarRecherche(f.nif)}<span class="source${f.nombreLieux?' nombre-lieux':''}">${f.nombreLieux?`${f.nombreLieux} lieux ouverts`:echapper(sourceFiche(f))}</span>`;b.onclick=()=>detailRecherche(f);const carte=document.createElement('article');carte.className='resultat-ajout';carte.append(b,boutonAjout(f));zone.append(carte);}};
+  $('filtre-lieux').onchange=e=>{filtreLieux=e.target.checked;rendre();};
   $('recherche').oninput=rendre;rendre();
   const geo=factice?gpsFactice:navigator.geolocation;
   if(geo){let id;const timer=setTimeout(()=>geo.clearWatch(id),10000);id=geo.watchPosition(p=>{const q={lat:p.coords.latitude,lon:p.coords.longitude};if(pointValide(q)){depart=q;if($('recherche'))rendre();geo.clearWatch(id);clearTimeout(timer);}},()=>{clearTimeout(timer);geo.clearWatch(id);},{enableHighAccuracy:false,maximumAge:0,timeout:10000});}
 }
 function detailRecherche(f){
-  $('contenu').innerHTML=`<h1>${echapper(f.raison||f.responsable||f.nif)}</h1><p>${echapper(sourceFiche(f))}</p><dl class="carte">${['nif','responsable','telephone','activite','rue','immeuble','niveau','porte'].map(k=>`<dt>${({nif:'NIF',responsable:'Responsable',telephone:'Téléphone',activite:'Activité',rue:'Rue',immeuble:'Immeuble',niveau:'Niveau',porte:'Porte'})[k]}</dt><dd>${echapper(f[k])}</dd>`).join('')}</dl><div class="actions detail-actions">${lienItineraire(f)}<button id="mettre-a-jour" class="principal">Mettre à jour</button><button id="retour-recherche">Retour à la recherche</button></div>`;
+  $('contenu').innerHTML=`<h1>${echapper(f.raison||f.responsable||f.nif)}</h1>${f.source||!f.nombreLieux?`<p>${echapper(sourceFiche(f))}</p>`:''}<dl class="carte">${['nif','responsable','telephone','activite','rue','immeuble','niveau','porte'].map(k=>`<dt>${({nif:'NIF',responsable:'Responsable',telephone:'Téléphone',activite:'Activité',rue:'Rue',immeuble:'Immeuble',niveau:'Niveau',porte:'Porte'})[k]}</dt><dd>${echapper(f[k])}</dd>`).join('')}</dl>${sesLieux(f.nif)}<div class="actions detail-actions">${lienItineraire(f)}<button id="mettre-a-jour" class="principal">Mettre à jour</button><button id="retour-recherche">Retour à la recherche</button></div>`;
   $('retour-recherche').onclick=afficherRecherche;document.querySelector('.detail-actions').prepend(boutonAjout(f));
   $('mettre-a-jour').onclick=()=>{edition=null;onglet='Recensement';arreterGPS();actualiserOnglets();afficherRecensement(miseAJour(f));$('fiche').dataset.modifie='oui';};
 }
@@ -532,7 +576,7 @@ async function recalculerTrajet(){
 }
 function ouvrirVisite(f){
   arreterGPS();visiteEnCours=f;point=null;brouillonId=nouvelId();const id=brouillonId;
-  $('contenu').innerHTML=`<button type="button" id="retour-lot" class="retour-lot">← Retour à la tournée</button><div class="carte"><h1>${echapper(f.raison||f.responsable||f.nif)}</h1><p>${echapper(f.adresse||f.rue||'')}${f.origine==='LIBRE'?'':` · <b class="distance">${echapper(Number(f.rar||0).toLocaleString('fr-FR'))} FCFA</b>`}</p></div><form id="fiche" novalidate><h2>Résultat de la visite</h2><div id="boutons-resultats" class="actions"></div><input type="hidden" id="resultat" name="resultat"><div id="champs-visite" class="carte"></div><section class="carte gps-tuile"><h2>GPS sur place</h2><p id="gps-etat" role="status"></p><button type="button" class="principal" id="garder-gps" disabled>Garder ce point</button><button type="button" id="reprendre-gps">Reprendre le GPS</button></section><div id="erreurs" role="alert" tabindex="-1"></div><div class="actions enregistrement"><button class="principal" id="enregistrer-visite">Enregistrer le résultat</button></div></form>`;
+  $('contenu').innerHTML=`<button type="button" id="retour-lot" class="retour-lot">← Retour à la tournée</button><div class="carte"><h1>${echapper(f.raison||f.responsable||f.nif)}</h1><p>${echapper(f.adresse||f.rue||'')}${f.origine==='LIBRE'?'':` · <b class="distance">${echapper(Number(f.rar||0).toLocaleString('fr-FR'))} FCFA</b>`}</p></div>${sesLieux(f.nif)}<form id="fiche" novalidate><h2>Résultat de la visite</h2><div id="boutons-resultats" class="actions"></div><input type="hidden" id="resultat" name="resultat"><div id="champs-visite" class="carte"></div><section class="carte gps-tuile"><h2>GPS sur place</h2><p id="gps-etat" role="status"></p><button type="button" class="principal" id="garder-gps" disabled>Garder ce point</button><button type="button" id="reprendre-gps">Reprendre le GPS</button></section><div id="erreurs" role="alert" tabindex="-1"></div><div class="actions enregistrement"><button class="principal" id="enregistrer-visite">Enregistrer le résultat</button></div></form>`;
   const enteteVisite=$('contenu').querySelector('.carte');
   enteteVisite.insertAdjacentHTML('beforeend',mentionCadenas(f.nif));
   boutonSituation(enteteVisite,f);
@@ -575,7 +619,11 @@ async function demarrer(){
     const rr=await db.lire('rars'),ss=await db.lire('situations_ajouts');
     if(rr?.code===session.code)rars=rr.valeur;
     if(ss?.code===session.code)situationsAjouts=ss.valeur;
-  }await chargerFiches();
+  }
+  const cacheLieux=await db.lire('lieux');
+  const lieuxGardes=lireLieux(cacheLieux?.lignes);
+  if(lieuxGardes&&cacheLieux.lieux_version){lieuxParNif=lieuxGardes;lieux_version=cacheLieux.lieux_version;}
+  await chargerFiches();
   $('version').textContent=`v${VERSION}${factice?' · Données fictives':''}`;
   $('changer').onclick=()=>{if(protegerBrouillon())choisirEquipe().catch(erreur);};
   $('envoyer').onclick=envoyer;

@@ -34,3 +34,12 @@ html{scroll-padding-top:90px;scroll-padding-bottom:calc(var(--bas) + 100px)}
 
 .rar-recherche{font-size:.875rem;}
 #recherche-cadenas{margin-bottom:12px}#registre-cadenas h2{margin-top:0}
+
+.filtre-lieux { display: flex; align-items: center; gap: .5rem; margin-top: .75rem; }
+.filtre-lieux input { width: auto; }
+.ses-lieux summary { cursor: pointer; }
+.ses-lieux ul { list-style: none; margin: .5rem 0 0; padding: 0; }
+.ses-lieux li { padding: .65rem 0; border-top: 1px solid #dbe1e8; }
+.ses-lieux .lieu-ferme, .ses-lieux .lieu-ferme a { color: #59636f; }
+
+.resultat .nombre-lieux { display: table; margin-top: .35rem; }

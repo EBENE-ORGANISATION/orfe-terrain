@@ -8,6 +8,52 @@ export function indexerRecherche(recenses,connus,locales=[]){
   const vus=new Set();
   return [...recenses.map(f=>({...f,source:'Application'})),...connus,...locales.filter(f=>f.type==='RECENSEMENT'&&!f.envoyee).map(f=>({...f,source:'Application'}))].filter(f=>{const cle=f.id&&`${f.source}|${f.id}`;if(cle&&vus.has(cle))return false;if(cle)vus.add(cle);return true;}).map(f=>({fiche:f,texte:normaliser(['nif','raison','responsable','activite','rue','immeuble'].map(k=>f[k]||'').join(' '))+' '+chiffres(f.telephone)}));
 }
+const colonnesLieux=['nif','id','type','principal','rue','immeuble','niveau','porte','quartier','lat','lon','date'];
+const lieuOuvert=l=>l.type==='BOUTIQUE'||l.type==='MAGASIN';
+const rangLieu=l=>l.principal==='OUI'&&lieuOuvert(l)?0:lieuOuvert(l)?1:2;
+
+export function lireLieux(lignes){
+  if(!Array.isArray(lignes))return null;
+  const parNif=new Map();
+  for(const l of lignes){
+    if(!Array.isArray(l)||l.length!==colonnesLieux.length||l.some(v=>typeof v!=='string')
+      ||!/^\d+$/.test(l[0])||!l[1]||!['BOUTIQUE','MAGASIN','FERME','ANCIENNE ADRESSE'].includes(l[2])
+      ||!['OUI','NON'].includes(l[3])
+      ||[l[9],l[10]].some(v=>v!==''&&!/^-?\d+(\.\d+)?$/.test(v))
+      ||(l[11]!==''&&!/^\d{4}-\d{2}-\d{2}$/.test(l[11])))return null;
+    const lieu=Object.fromEntries(colonnesLieux.map((k,i)=>[k,l[i]]));
+    for(const k of ['lat','lon'])lieu[k]=lieu[k]===''?'':Number(lieu[k]);
+    if(!parNif.has(lieu.nif))parNif.set(lieu.nif,[]);
+    parNif.get(lieu.nif).push(lieu);
+  }
+  for(const lieux of parNif.values())lieux.sort((a,b)=>rangLieu(a)-rangLieu(b));
+  return parNif;
+}
+
+export function indexerLieux(lieux,connus){
+  const identites=new Map();
+  for(const f of connus)if(f.nif&&f.raison&&!identites.has(f.nif))identites.set(f.nif,f);
+  const fiches=[];
+  for(const [nif,liste] of lieux){
+    const nombreLieux=liste.filter(lieuOuvert).length;
+    if(nombreLieux>=2)fiches.push({...identites.get(nif),nif,nombreLieux});
+  }
+  return indexerRecherche([],fiches);
+}
+
+export function chercherLieux(index,requete,rars){
+  const tries=[...index].sort(({fiche:a},{fiche:b})=>{
+    const ra=rars?.[a.nif],rb=rars?.[b.nif];
+    if(ra!==undefined||rb!==undefined){
+      if(ra===undefined)return 1;
+      if(rb===undefined)return -1;
+      if(ra!==rb)return rb-ra;
+    }
+    return b.nombreLieux-a.nombreLieux||(a.raison||a.nif).localeCompare(b.raison||b.nif,'fr')||a.nif.localeCompare(b.nif);
+  });
+  return chercher(tries,requete);
+}
+
 export function chercher(index,requete){const mots=normaliser(requete).split(/\s+/).filter(Boolean).map(m=>/^[\d()+.-]+$/.test(m)?chiffres(m):m).filter(Boolean),resultats=[];let total=0;for(const x of index)if(mots.every(m=>x.texte.includes(m))){total++;if(resultats.length<50)resultats.push(x.fiche);}return {total,resultats};}
 export function miseAJour(f,id=nouvelId()) {const r={id,type:'RECENSEMENT',gps:'AUCUN',immatricule:chiffres(f.nif)?'OUI':'NE SAIT PAS'};for(const k of ['nif','raison','responsable','telephone','activite','rue','immeuble','niveau','porte'])r[k]=f[k]||'';return r;}
 export const RESULTATS={FICHE_REMISE:['Fiche remise',true,true],ACTE_REMIS:['Acte remis',true,true],A_PAYE:['A payé (preuve vue)',true,true],PROMESSE:['Promesse de paiement',true,true],ABSENT:['Absent, à repasser',false,false],TROUVEE_FERMEE:['Trouvée fermée',false,false],FERMETURE_OTR:['Fermeture par l’OTR',true,true],REFUS:['Refus de recevoir',true,true],DEMENAGE:['A déménagé',true,false],INTROUVABLE:['Introuvable',true,false],REPORTE:['Reporté',false,false],REOUVERTURE:['Réouverture',false,false]};
