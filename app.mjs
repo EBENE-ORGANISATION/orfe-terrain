@@ -3,7 +3,7 @@ import {ACTIONS_REC,texte,chiffres,nifValide,dateLocale,nouvelId,CHOIX,validerFi
 import {ouvrirStockage} from './stockage.mjs';
 import {ecouterGPS} from './gps.mjs';
 import {poster,carteRues} from './transport.mjs';
-import {SANS_GPS,noteAujourdhui,cleAjout,ajouterAjout,etatAjout,indexerRecherche,lireConnus,chercher,miseAJour,distance,RESULTATS,resultatsVisibles,numeros,localisation,validerVisite,annulation,appliquerVisitesLocales,visitesActives,avertissementsCadenas,mesPoints,trajet,liensMaps,appliquerActions} from './tournee.mjs';
+import {SANS_GPS,noteAujourdhui,cleAjout,ajouterAjout,etatAjout,indexerRecherche,lireConnus,lireIdentites,identiteRecensement,champIdentite,MESSAGE_NIF_CONNU,chercher,miseAJour,distance,RESULTATS,resultatsVisibles,numeros,localisation,validerVisite,annulation,appliquerVisitesLocales,visitesActives,avertissementsCadenas,mesPoints,trajet,liensMaps,appliquerActions} from './tournee.mjs';
 import {lireLieux,indexerLieux,chercherLieux} from './tournee.mjs';
 import {pointValide} from './metier.mjs';
 import {releveCadenas,lireRegistreCadenas,estOperationCadenas,operationsCadenas} from './tournee.mjs';
@@ -37,6 +37,7 @@ const rueCarte=carteRues();
 let simuler,gpsFactice;
 let ajoutsParCode={},ajouts=[];
 let connus=[],indexRecherche=[],lotGarde={lot:[],pris:[],cadenas_poses:[]},actions=[],depart=null,ordre=[],chauffe=null,pageQuittee=false,dernierePosition=0,visiteEnCours=null,actionsEnvoi=false;
+let identites=new Map(),identitesVersion='';
 let lieuxParNif=new Map(),lieux_version='',indexLieux=[],filtreLieux=false;
 function reindexer(){
   indexRecherche=indexerRecherche(recenses,connus,fiches.filter(f=>f.agent===session?.agent));
@@ -60,6 +61,24 @@ async function rafraichirLieux(){
     }
   }else if(!lieux_version)return;
   await db.garder('lieux_demande_jour',aujourdHui);
+}
+async function rafraichirIdentites(code,generation){
+  const aujourdHui=jour();
+  if(await db.lire('identites_demande_jour')===aujourdHui||!sessionCourante(code,generation))return;
+  const r=await appel('identites',{version:identitesVersion});
+  if(r?.ok!==true||r.absent||!sessionCourante(code,generation))return;
+  if(r.inchange!==true){
+    const index=lireIdentites(r.lignes);
+    if(!index||typeof r.version!=='string'||!r.version)return;
+    identites=index;identitesVersion=r.version;
+    await Promise.all([db.garder('identites',r.lignes),db.garder('identites_version',r.version)]);
+    $('nif')?.actualiserIdentite?.();
+  }else if(!identitesVersion)return;
+  if(sessionCourante(code,generation))await db.garder('identites_demande_jour',aujourdHui);
+}
+async function effacerIdentites(){
+  identites.clear();identitesVersion='';
+  await Promise.all(['identites','identites_version','identites_demande_jour'].map(cle=>db.effacer(cle)));
 }
 async function garderCadenas(r){if(Array.isArray(r.cadenas_poses)){lotGarde={...lotGarde,...releveCadenas(r,lotGarde)};await db.garder('lot',lotGarde);}}
 async function effacerSituations(){
@@ -134,7 +153,7 @@ async function appel(action,donnees={},ecranValide=()=>true){
   if(!sessionCourante(code,generation)||!ecranValide())throw Object.assign(new Error(),{perime:true});
   if(r?.ok===false){
     if(r.raison==='DROITS'&&['rars','situation','situations','lot','bonjour'].includes(action)){generationSession++;session.peut_voir_situation=false;await Promise.all([effacerSituations(),db.garder('session',session)]);}
-    if(r.raison==='CODE'){generationSession++;session=null;equipe=null;await Promise.all([effacerSituations(),db.garder('session',null)]);arreterGPS();ajusterChauffe();afficherConnexion();}
+    if(r.raison==='CODE'){generationSession++;session=null;equipe=null;await Promise.all([effacerSituations(),effacerIdentites(),db.garder('session',null)]);arreterGPS();ajusterChauffe();afficherConnexion();}
     throw new Error(r.raison==='CODE'?'Ce code n’est plus actif. Saisissez un nouveau code.':r.raison||'La demande a été refusée.');
   }
   return r;
@@ -156,7 +175,7 @@ function afficherConnexion(){
   $('connexion').onsubmit=async e=>{e.preventDefault();const bouton=e.submitter;bouton.disabled=true;try{
     if(!enLigne())throw new Error('Il faut du réseau pour la première ouverture.');
     const code=$('code').value;generationSession++;const r=await appel('bonjour',{code});
-    generationSession++;session={...r,code};await effacerSituations();await garderCadenas(r);await db.garder('session',session);await chargerFiches();await choisirEquipe();rafraichir().catch(erreur);
+    generationSession++;session={...r,code};await Promise.all([effacerSituations(),effacerIdentites()]);await garderCadenas(r);await db.garder('session',session);await chargerFiches();await choisirEquipe();rafraichir().catch(erreur);
   }catch(e){erreur(e);}finally{bouton.disabled=false;}};
 }
 async function chargerFiches(){ajoutsParCode=await db.lire('ajouts')||{};ajouts=ajoutsParCode[session?.code]||[];fiches=await db.fiches();reindexer();compteur();}
@@ -246,21 +265,33 @@ function afficherRecensement(reprendre={}){
   $('contenu').innerHTML=`<h1>${edition?'Corriger la fiche':'Recenser une boutique'}</h1><p class="aide">Les champs marqués * sont nécessaires. Raison sociale ou responsable : au moins un des deux.</p><form id="fiche" novalidate><div class="carte"><div class="grille">${champ('immatricule','Immatriculé ? *',{choix:CHOIX.immatricule,valeur:f.immatricule,obligatoire:true})}${champ('nif','NIF',{valeur:f.nif,chiffres:true})}</div><p id="avertissement-nif" role="status"></p></div><div class="carte grille">${champ('raison','Raison sociale',{valeur:f.raison})}${champ('responsable','Nom du responsable',{valeur:f.responsable})}${champ('telephone','Téléphone',{valeur:f.telephone,chiffres:true})}</div><div class="carte">${champ('activite','Activité *',{valeur:f.activite,obligatoire:true,suggestions:true})}</div><datalist id="activite-suggestions"></datalist><section class="carte gps-tuile" aria-labelledby="titre-gps"><h2 id="titre-gps">Localisation</h2><p id="gps-etat" role="status"></p><button type="button" id="garder-gps" class="principal" disabled>Garder ce point</button><button type="button" id="reprendre-gps">Reprendre le GPS</button><div id="rue-proposee"></div><p class="aide">Suggestion cartographique : © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>.</p></section><div class="carte grille">${champ('rue','Rue *',{valeur:f.rue,obligatoire:true,suggestions:true})}${champ('immeuble','Immeuble',{valeur:f.immeuble})}${champ('niveau','Niveau',{choix:CHOIX.niveau,valeur:niveauAutre?'AUTRE':f.niveau})}${champ('niveau_autre','Précisez le niveau',{valeur:niveauAutre?f.niveau:''})}${champ('porte','Numéro de porte',{valeur:f.porte})}${champ('enseigne','Y a-t-il une enseigne ?',{choix:CHOIX.enseigne,valeur:f.enseigne})}</div><div class="carte">${champ('regime','Régime déclaré',{choix:CHOIX.regime,valeur:f.regime})}<datalist id="rue-suggestions"></datalist></div><section class="carte" aria-labelledby="titre-action"><h2 id="titre-action">Action menée *</h2>${Object.entries(ACTIONS_REC).map(([code,label])=>`<label><input type="checkbox" name="action" value="${code}" ${f.action?.includes(code)?'checked':''}>${label}</label>`).join('')}${champ('action_autre',"Précisez l'action *",{valeur:f.action_autre})}</section><div class="carte">${champ('observation','Observation',{valeur:f.observation,aire:true})}</div><div id="erreurs" role="alert" tabindex="-1"></div><div class="actions enregistrement"><button class="principal" id="enregistrer">Enregistrer la fiche</button>${edition?'<button type="button" id="annuler-edition">Annuler la correction</button>':''}</div></form><details id="mes-fiches"><summary>Mes fiches du jour</summary><div id="liste-fiches"></div></details>`;
   $('erreurs').before($('titre-gps').closest('section'));
   $('fiche').oninput=()=>{$('fiche').dataset.modifie='oui';};
-  for(const n of ['nif','telephone'])$(n).oninput=()=>{$(n).value=chiffres($(n).value);if(n==='nif')avertirNif();};
+  const auto={},champsIdentite=['raison','responsable'];
+  const actualiserIdentite=()=>{
+    const nif=$('nif').value,identite=identiteRecensement(nif,identites,connus);
+    champsIdentite.forEach((nom,i)=>{
+      const champ=$(nom),r=champIdentite(nif,champ.value,auto[nom],identite?.[i]);
+      champ.value=r.valeur;auto[nom]=r.auto;
+    });
+    avertirNif(Boolean(identite));
+  };
+  for(const nom of champsIdentite)$(nom).oninput=()=>{auto[nom]={manuel:true};};
+  $('nif').actualiserIdentite=actualiserIdentite;
+  $('nif').oninput=()=>{$('nif').value=chiffres($('nif').value);actualiserIdentite();};
+  $('telephone').oninput=()=>{$('telephone').value=chiffres($('telephone').value);};
   const afficherActionAutre=()=>{$('action_autre').parentElement.hidden=!document.querySelector('[name="action"][value="AUTRE"]').checked;};
   document.querySelectorAll('[name="action"]').forEach(c=>c.onchange=afficherActionAutre);afficherActionAutre();
-  $('immatricule').onchange=avertirNif;
+  $('immatricule').onchange=actualiserIdentite;
   $('niveau').onchange=()=>{$('niveau_autre').parentElement.hidden=$('niveau').value!=='AUTRE';};$('niveau').onchange();
   $('rue').oninput=()=>{rueSource='AGENT';rueOrigine=$('rue').value;};
   $('garder-gps').onclick=()=>gpsEnCours?.stop();
   $('reprendre-gps').onclick=()=>prendreGPS().catch(erreur);
   $('fiche').onsubmit=enregistrer;
   if($('annuler-edition'))$('annuler-edition').onclick=()=>{if(protegerBrouillon()){edition=null;afficherRecensement();}};
-  suggestions();listeFiches();avertirNif();afficherPoint();
+  suggestions();listeFiches();actualiserIdentite();afficherPoint();
   if(!point)prendreGPS().catch(erreur);else proposer().catch(erreur);
   ajusterChauffe();
 }
-function avertirNif(){const oui=$('immatricule').value==='OUI';$('nif').required=oui;$('avertissement-nif').textContent=oui&&$('nif').value&&!nifValide($('nif').value)?'À vérifier : le NIF devrait avoir 10 chiffres et commencer par 1. Vous pouvez enregistrer.':'';}
+function avertirNif(connu){const oui=$('immatricule').value==='OUI';$('nif').required=oui;const format=oui&&$('nif').value&&!nifValide($('nif').value)?'À vérifier : le NIF devrait avoir 10 chiffres et commencer par 1. Vous pouvez enregistrer.':'';$('avertissement-nif').textContent=[format,connu?MESSAGE_NIF_CONNU:''].filter(Boolean).join(' ');}
 function suggestions(){for(const n of ['rue','activite']){const liste=$(`${n}-suggestions`);if(!liste)continue;liste.replaceChildren();const valeurs=[...new Set([...recenses,...fiches.filter(f=>f.agent===session.agent)].map(f=>texte(f[n])).filter(Boolean))].sort();for(const v of valeurs){const o=document.createElement('option');o.value=v;liste.append(o);}}}
 function afficherPoint(note=''){
   if(situationOuverte)return;
@@ -364,6 +395,9 @@ async function rafraichir(){
       await db.garder('connus_demande_jour',jour());
       try{const r=await appel('connus',{version:await db.lire('connus_version')||''});if(!r.inchange){connus=lireConnus(r);await db.garder('connus',connus);}await db.garder('connus_version',r.version);}catch(e){erreur(e);}
     }
+    $('nif')?.actualiserIdentite?.();
+    try{await rafraichirIdentites(code,generation);}catch(e){if(!session)erreur(e);}
+    if(!sessionCourante(code,generation))return;
     try{await rafraichirLieux();}catch(e){erreur(e);}
     if(!sessionCourante(code,generation))return;
     reindexer();
@@ -615,7 +649,10 @@ async function serviceWorker(){
 }
 async function demarrer(){
   if(factice){document.body.classList.add('factice');({repondre:simuler,gpsFactice}=await import('../essais/telephone/boite-factice.js'));}
-  db=await ouvrirStockage(factice,new URL(location.href).searchParams.get('carnet')||'');session=await db.lire('session');equipe=await db.lire('equipe');recenses=await db.lire('recenses')||[];connus=await db.lire('connus')||[];lotGarde=await db.lire('lot')||lotGarde;actions=await db.lire('actions')||[];if(!droit(session?.peut_voir_situation))await effacerSituations();else{
+  db=await ouvrirStockage(factice,new URL(location.href).searchParams.get('carnet')||'');session=await db.lire('session');
+  if(session){identites=lireIdentites(await db.lire('identites'))||new Map();identitesVersion=await db.lire('identites_version')||'';}
+  else await effacerIdentites();
+  equipe=await db.lire('equipe');recenses=await db.lire('recenses')||[];connus=await db.lire('connus')||[];lotGarde=await db.lire('lot')||lotGarde;actions=await db.lire('actions')||[];if(!droit(session?.peut_voir_situation))await effacerSituations();else{
     const rr=await db.lire('rars'),ss=await db.lire('situations_ajouts');
     if(rr?.code===session.code)rars=rr.valeur;
     if(ss?.code===session.code)situationsAjouts=ss.valeur;

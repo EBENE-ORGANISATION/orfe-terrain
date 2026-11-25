@@ -1,9 +1,32 @@
-import {texte,chiffres,nouvelId,dateLocale,distance,pointValide} from './metier.mjs';
+import {texte,chiffres,nouvelId,dateLocale,distance,pointValide,nifValide} from './metier.mjs';
 export {distance};
 const dernier=liste=>liste[liste.length-1];
 export const normaliser=v=>texte(v).normalize('NFD').replace(/[\u0300-\u036f]/g,'');
 const colonnes=['nif','raison','responsable','telephone','activite','rue','immeuble','niveau','porte','lat','lon','date','source'];
 export function lireConnus(reponse){return (reponse.lignes||[]).map(l=>Object.fromEntries(colonnes.map((k,i)=>[k,['lat','lon'].includes(k)?(l[i]===''||l[i]==null?'':Number(l[i])):l[i]||''])));}
+export function lireIdentites(lignes){
+  if(!Array.isArray(lignes))return null;
+  const index=new Map();
+  for(const ligne of lignes){
+    if(!Array.isArray(ligne)||ligne.length!==3||ligne.some(v=>typeof v!=='string')||!nifValide(ligne[0]))return null;
+    const [nif,raison,responsable]=ligne;
+    index.set(nif,[raison,responsable]);
+  }
+  return index;
+}
+export function identiteRecensement(nif,identites,connus){
+  if(!/^\d{10}$/.test(nif))return null;
+  const identite=identites.get(nif);
+  if(identite)return identite;
+  const f=connus.find(f=>f.nif===nif);
+  return f?[f.raison||'',f.responsable||'']:null;
+}
+export const MESSAGE_NIF_CONNU="Contribuable déjà connu d'ORFE";
+export function champIdentite(nif,valeur,auto,suggestion){
+  if(auto&&(auto.manuel||valeur!==auto.valeur))return {valeur,auto:{manuel:true}};
+  if((auto?.nif===nif&&valeur===suggestion)||(!auto&&valeur))return {valeur,auto};
+  return {valeur:suggestion||'',auto:suggestion?{nif,valeur:suggestion}:null};
+}
 export function indexerRecherche(recenses,connus,locales=[]){
   const vus=new Set();
   return [...recenses.map(f=>({...f,source:'Application'})),...connus,...locales.filter(f=>f.type==='RECENSEMENT'&&!f.envoyee).map(f=>({...f,source:'Application'}))].filter(f=>{const cle=f.id&&`${f.source}|${f.id}`;if(cle&&vus.has(cle))return false;if(cle)vus.add(cle);return true;}).map(f=>({fiche:f,texte:normaliser(['nif','raison','responsable','activite','rue','immeuble'].map(k=>f[k]||'').join(' '))+' '+chiffres(f.telephone)}));

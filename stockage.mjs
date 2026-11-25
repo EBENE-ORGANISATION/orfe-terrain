@@ -18,6 +18,7 @@ class Stockage {
   });}
   lire(cle){return this.operation('meta','readonly',s=>s.get(cle));}
   garder(cle,v){return this.operation('meta','readwrite',s=>s.put(v,cle));}
+  effacer(cle){return this.operation('meta','readwrite',s=>s.delete(cle));}
   fiches(){return this.operation('fiches','readonly',s=>s.getAll());}
   fiche(f){return this.operation('fiches','readwrite',s=>s.put(f));}
 }
