@@ -434,10 +434,17 @@ async function gestion(){
   $('contenu').innerHTML='<h1>Gestion</h1>';
   if(!enLigne()){$('contenu').append(document.createTextNode('Il faut du réseau pour la gestion'));return;}
   if(!droit(session.peut_gerer))return;
-  const resultat=await appel('agents');if(onglet!=='Gestion'||!session)return;
+  // La dernière liste gardée s'affiche tout de suite ; la réponse de la boîte la remplace.
+  const code=session.code,garde=await db.lire('agents_gestion');
+  if(onglet==='Gestion'&&garde?.code===code&&Array.isArray(garde.agents))dessinerGestion(garde.agents,true);
+  const resultat=await appel('agents');if(onglet!=='Gestion'||session?.code!==code)return;
   const agents=Array.isArray(resultat)?resultat:resultat.agents;
   if(!Array.isArray(agents))throw new Error('La liste des agents reçue est illisible.');
-  $('contenu').innerHTML=`<h1>Gestion</h1><h2>Agents</h2><div id="agents"></div><form id="ajout-agent" class="carte"><h2>Ajouter un agent</h2>${champ('nom-agent','Nom *',{obligatoire:true})}<label><input type="checkbox" name="peut_extraire">Peut extraire</label><label><input type="checkbox" name="peut_gerer">Peut gérer</label><label><input type="checkbox" name="peut_voir_situation">Peut voir les situations</label><button class="principal">Ajouter l’agent</button></form><h2>Équipes actives</h2><div id="gestion-equipes"></div><form id="ajout-equipe" class="carte"><h2>Ajouter une équipe</h2>${champ('nom-equipe','Nom de l’équipe *',{obligatoire:true})}<label><input type="checkbox" name="fait_la_tournee">Fait la tournée</label><button class="principal">Ajouter l’équipe</button></form>`;
+  await db.garder('agents_gestion',{code,agents});if(onglet!=='Gestion'||session?.code!==code)return;
+  dessinerGestion(agents,false);
+}
+function dessinerGestion(agents,attente){
+  $('contenu').innerHTML=`<h1>Gestion</h1>${attente?'<p class="aide">Mise à jour…</p>':''}<h2>Agents</h2><div id="agents"></div><form id="ajout-agent" class="carte"><h2>Ajouter un agent</h2>${champ('nom-agent','Nom *',{obligatoire:true})}<label><input type="checkbox" name="peut_extraire">Peut extraire</label><label><input type="checkbox" name="peut_gerer">Peut gérer</label><label><input type="checkbox" name="peut_voir_situation">Peut voir les situations</label><button class="principal">Ajouter l’agent</button></form><h2>Équipes actives</h2><div id="gestion-equipes"></div><form id="ajout-equipe" class="carte"><h2>Ajouter une équipe</h2>${champ('nom-equipe','Nom de l’équipe *',{obligatoire:true})}<label><input type="checkbox" name="fait_la_tournee">Fait la tournée</label><button class="principal">Ajouter l’équipe</button></form>`;
   async function mutation(action,data){if(!enLigne())throw new Error('Il faut du réseau pour la gestion');const r=await appel(action,data);if(r.code_nouveau)await montrerCode(r.code_nouveau);await rafraichir();if(onglet==='Gestion'&&droit(session?.peut_gerer))await gestion();return r;}
   function branche(form,fn){form.onsubmit=async e=>{e.preventDefault();const b=e.submitter;b.disabled=true;try{await fn(new FormData(form));}catch(e){erreur(e);}finally{b.disabled=false;}};}
   const oui=(fd,k)=>fd.has(k)?'OUI':'NON';
