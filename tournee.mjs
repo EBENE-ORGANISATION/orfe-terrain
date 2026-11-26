@@ -159,7 +159,7 @@ export function trajet(depart,points){
     const c=longueur(depart,ordre);if(c<cout){meilleur=ordre;cout=c;}
   }return meilleur;
 }
-export function mesPoints(lot,pris,agent,ajouts=[],visites=[],lotGarde={},jour=dateLocale().slice(0,10)){const miens=new Set(pris.filter(p=>p.agent===agent).map(p=>p.nif));const liste=[...lot.filter(f=>miens.has(f.nif)&&!['TERMINE','RETIRE'].includes(f.etat)&&!noteAujourdhui(f,lotGarde,visites,jour)),...ajouts.map(f=>({...f,...etatAjout(f,visites,agent,jour),origine:'LIBRE'})).filter(f=>!f.cache)];return {points:liste.filter(f=>pointValide(f)&&f.gps!=='IMPRECIS'),aVerifier:liste.filter(f=>!pointValide(f)||f.gps==='IMPRECIS')};}
+export function mesPoints(lot,pris,agent,ajouts=[],visites=[],lotGarde={},jour=dateLocale().slice(0,10),equipe){const miens=new Set(pris.filter(p=>p.agent===agent).map(p=>p.nif));const liste=[...lot.filter(f=>miens.has(f.nif)&&!['TERMINE','RETIRE'].includes(f.etat)&&!noteAujourdhui(f,lotGarde,visites,jour)),...ajouts.map(f=>({...f,...etatAjout(f,visites,equipe,jour),origine:'LIBRE'})).filter(f=>!f.cache)];return {points:liste.filter(f=>pointValide(f)&&f.gps!=='IMPRECIS'),aVerifier:liste.filter(f=>!pointValide(f)||f.gps==='IMPRECIS')};}
 export function liensMaps(depart,points,etapes=3){const taille=Math.min(3,Math.max(0,Math.floor(Number(etapes)||0)))+1,liens=[];let origine=depart;const coord=p=>`${+Number(p.lat).toFixed(7)},${+Number(p.lon).toFixed(7)}`;for(let i=0;i<points.length;i+=taille){const partie=points.slice(i,i+taille),fin=dernier(partie);liens.push(`https://www.google.com/maps/dir/?api=1&origin=${coord(origine)}&destination=${coord(fin)}&waypoints=${partie.slice(0,-1).map(coord).join('|')}&travelmode=walking`);origine=fin;}return liens;}
 export function appliquerActions(lot,pris,actions,agent,date){lot=lot.map(f=>({...f}));pris=pris.map(p=>({...p}));for(const a of actions.filter(a=>a.date===date)){for(const nif of a.nifs){if(a.action==='retirer'){const f=lot.find(f=>f.nif===nif);if(f)f.etat='RETIRE';}else{pris=pris.filter(p=>p.nif!==nif);if(a.action==='prendre')pris.push({nif,equipe:a.equipe,agent:a.agent||agent,heure:a.heure});}}}return {lot,pris};}
 
@@ -173,7 +173,11 @@ export function ajouterAjout(ajouts,f,quand=dateLocale()){
   if(f.gps)a.gps=f.gps;
   return [...ajouts,a];
 }
-export function etatAjout(ajout,visites,agent,jour=dateLocale().slice(0,10)){
-  const actives=visitesActives(visites.filter(v=>v.origine==='LIBRE'&&v.agent===agent&&(v.cle||cleAjout({...v,id:undefined}))===ajout.cle));
+export function etatAjout(ajout,visites,equipe,jour=dateLocale().slice(0,10)){
+  const locales=visites.filter(v=>v.origine==='LIBRE'&&v.equipe===equipe);
+  const identite=v=>ajout.cle.startsWith('N:')?'N:'+chiffres(v.nif):ajout.cle.startsWith('F:')?'F:'+(v.fiche_id||''):(v.cle||cleAjout({...v,id:undefined}));
+  const fusion=new Map((ajout.visites||[]).map(v=>[v.id,v]));
+  for(const v of locales)if(v.annule==='OUI'||identite(v)===ajout.cle)fusion.set(v.id,v);
+  const actives=visitesActives([...fusion.values()]);
   const v=dernier(actives);return {cache:!!RESULTATS[v?.resultat]?.[1]||actives.some(v=>v.date.slice(0,10)===jour),etat:RESULTATS[v?.resultat]?.[1]?'TERMINE':'A_VISITER',dernier_resultat:v?.resultat||'',...(v?.gps==='IMPRECIS'?{gps:'IMPRECIS'}:{})};
 }

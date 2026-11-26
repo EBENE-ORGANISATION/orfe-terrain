@@ -24,7 +24,7 @@ const sessionCourante=(code,generation)=>session?.code===code&&generationSession
 const nifSituation=nif=>/^\d{10}$/.test(nif||'');
 async function garderFiscal(cle,valeur){await db.garder(cle,{code:session.code,valeur});}
 async function purgerAjouts(){
-  const admis=new Set(ajouts.filter(a=>etatAjout(a,visitesLocales(),session.agent).etat!=='TERMINE').map(a=>a.nif));
+  const admis=new Set(ajouts.filter(a=>etatDeAjout(a).etat!=='TERMINE').map(a=>a.nif));
   situationsAjouts=Object.fromEntries(Object.entries(situationsAjouts).filter(([nif])=>admis.has(nif)));
   await garderFiscal('situations_ajouts',situationsAjouts);
 }
@@ -35,7 +35,19 @@ function rarRecherche(nif){
 let brouillonId=nouvelId(),rafraichissement=null;
 const rueCarte=carteRues();
 let simuler,gpsFactice;
-let ajoutsParCode={},ajouts=[];
+let anciensAjouts={}, partages=[], ajouts=[], mutationAjouts=false, revisionAjouts=0;
+const cleAjouts=(code,nom)=>'ajouts_equipe:'+JSON.stringify([code,nom]);
+function reunirAjouts(){
+  const cles=new Set(partages.map(a=>a.cle));
+  ajouts=[...partages,...(anciensAjouts[session?.code]||[]).filter(a=>!cles.has(a.cle)).map(a=>({...a,local:true}))];
+}
+async function chargerAjouts(){
+  const code=session?.code,choix=equipe;
+  partages=[];reunirAjouts();
+  const liste=choix&&code?await db.lire(cleAjouts(code,choix.nom)):null;
+  if(session?.code===code&&equipe===choix){partages=liste||[];reunirAjouts();}
+}
+const etatDeAjout=a=>etatAjout(a,visitesLocales(),equipe?.nom,jour());
 let connus=[],indexRecherche=[],lotGarde={lot:[],pris:[],cadenas_poses:[]},actions=[],depart=null,ordre=[],chauffe=null,pageQuittee=false,dernierePosition=0,visiteEnCours=null,actionsEnvoi=false;
 let identites=new Map(),identitesVersion='';
 let lieuxParNif=new Map(),lieux_version='',indexLieux=[],filtreLieux=false;
@@ -175,17 +187,17 @@ function afficherConnexion(){
   $('connexion').onsubmit=async e=>{e.preventDefault();const bouton=e.submitter;bouton.disabled=true;try{
     if(!enLigne())throw new Error('Il faut du réseau pour la première ouverture.');
     const code=$('code').value;generationSession++;const r=await appel('bonjour',{code});
-    generationSession++;session={...r,code};await Promise.all([effacerSituations(),effacerIdentites()]);await garderCadenas(r);await db.garder('session',session);await chargerFiches();await choisirEquipe();rafraichir().catch(erreur);
+    generationSession++;session={...r,code};await Promise.all([effacerSituations(),effacerIdentites()]);await garderCadenas(r);await db.garder('session',session);await chargerAjouts();await chargerFiches();await choisirEquipe();rafraichir().catch(erreur);
   }catch(e){erreur(e);}finally{bouton.disabled=false;}};
 }
-async function chargerFiches(){ajoutsParCode=await db.lire('ajouts')||{};ajouts=ajoutsParCode[session?.code]||[];fiches=await db.fiches();reindexer();compteur();}
+async function chargerFiches(){anciensAjouts=await db.lire('ajouts')||{};reunirAjouts();fiches=await db.fiches();reindexer();compteur();}
 function ficheCourante(){return $('fiche')||situationOuverte?.contenu.find(n=>n.id==='fiche');}
 function protegerBrouillon(){return !ficheCourante()?.dataset.modifie||confirm('Quitter cette fiche sans enregistrer ?');}
 async function choisirEquipe(){
   cadenasOuverts=false;
   arreterGPS();choixJour=true;entete();actualiserOnglets();
   $('contenu').innerHTML='<h1>Aujourd’hui, je suis dans :</h1><div id="equipes" class="equipes"></div><div id="acces-bureau" class="actions"></div>';
-  for(const e of session.equipes||[]){const b=document.createElement('button');b.textContent=e.nom;b.onclick=async()=>{try{equipe={nom:e.nom,date:jour()};await db.garder('equipe',equipe);choixJour=false;onglet='Recensement';edition=null;afficher();await rafraichir();envoyer();}catch(e){erreur(e);}};$('equipes').append(b);}
+  for(const e of session.equipes||[]){const b=document.createElement('button');b.textContent=e.nom;b.onclick=async()=>{try{equipe={nom:e.nom,date:jour()};await db.garder('equipe',equipe);await chargerAjouts();choixJour=false;onglet='Recensement';edition=null;afficher();if(rafraichissement)await rafraichissement.catch(erreur);await rafraichir();envoyer();}catch(e){erreur(e);}};$('equipes').append(b);}
   for(const [nom,autorise] of [['Gestion',session.peut_gerer],['Extraire',session.peut_extraire]]){if(!droit(autorise))continue;const b=document.createElement('button');b.textContent=nom;b.onclick=()=>{choixJour=false;onglet=nom;edition=null;afficher();};$('acces-bureau').append(b);}
   if(!session.equipes?.length)$('equipes').textContent='Aucune équipe active. Contactez le gestionnaire.';
   ajusterChauffe();
@@ -378,7 +390,15 @@ async function rafraichir(){
   if(!session||!enLigne())return;
   if(rafraichissement)return rafraichissement;
   rafraichissement=(async()=>{
-    const ancien=session;const r=await appel('bonjour');session={...r,code:ancien.code};if(!droit(r.peut_voir_situation)){generationSession++;await effacerSituations();}
+    const ancien=session,choix=equipe,revision=revisionAjouts;
+    const valide=()=>equipe===choix;
+    let r;
+    try{r=await appel('bonjour',jourCorrect()&&!choixJour?{}:{equipe:''},valide);}
+    catch(e){if(e.message!=='Équipe inactive')throw e;r=await appel('bonjour',{equipe:''},valide);}
+    const {ajouts_equipe:listeAjouts,...profil}=r;session={...profil,code:ancien.code};
+    if(Array.isArray(listeAjouts)&&!mutationAjouts&&revision===revisionAjouts)await garderAjouts(listeAjouts);
+    if(!valide()||session?.code!==ancien.code)return;
+    if(!droit(r.peut_voir_situation)){if(droit(ancien.peut_voir_situation))generationSession++;await effacerSituations();}
     const code=session.code,generation=generationSession;await garderCadenas(r);await db.garder('session',session);
     if(!jourCorrect()&&!accesBureau()){
       if(!ficheCourante()?.dataset.modifie)await choisirEquipe();
@@ -408,7 +428,7 @@ async function rafraichir(){
       if(!sessionCourante(code,generation))return;
       if(!rep.inchange){rars={version:rep.version,au:rep.au,parNif:Object.fromEntries(rep.rars)};await garderFiscal('rars',rars);}
       if(!sessionCourante(code,generation))return;
-      const nifs=[...new Set(ajouts.filter(a=>nifSituation(a.nif)&&etatAjout(a,visitesLocales(),session.agent).etat!=='TERMINE').map(a=>a.nif))];
+      const nifs=[...new Set(ajouts.filter(a=>nifSituation(a.nif)&&etatDeAjout(a).etat!=='TERMINE').map(a=>a.nif))];
       for(let i=0;i<nifs.length;i+=50){
         const rep=await appel('situations',{nifs:nifs.slice(i,i+50)});
         if(!sessionCourante(code,generation))return;
@@ -478,22 +498,62 @@ function sesLieux(nif){
   return nif?`<div class="ses-lieux" data-nif="${echapper(nif)}">${listeLieux(nif)}</div>`:'';
 }
 function sourceFiche(f){const d=(f.date||'').slice(0,10).split('-');return `${f.source||'Application'}${d.length===3?`${f.source==='Application'?', ':', visite du '}${d[2]}/${d[1]}`:''}`;}
-async function garderAjouts(liste){ajouts=liste;ajoutsParCode[session.code]=liste;await db.garder('ajouts',ajoutsParCode);if(droit(session?.peut_voir_situation))await purgerAjouts();}
+async function garderAjouts(liste){
+  partages=liste;reunirAjouts();
+  await db.garder(cleAjouts(session.code,equipe.nom),liste);
+}
+async function modifierAjouts(type,liste,reprise=false){
+  if(!enLigne())throw new Error("Il faut du réseau pour modifier les ajouts de l'équipe");
+  if(mutationAjouts||!jourCorrect()||choixJour)return false;
+  const code=session.code,generation=generationSession,choix=equipe;
+  const valide=()=>sessionCourante(code,generation)&&equipe===choix&&!choixJour;
+  mutationAjouts=true;revisionAjouts++;
+  try{
+    for(const a of liste){
+      if(!valide())return false;
+      if(type==='AJOUT'||!a.local){
+        const {nif,fiche_id,raison,responsable,telephone,activite,rue,lat,lon,gps}=a;
+        const r=await appel('ajouts_operer',{operation:{id:nouvelId(),type,nif,fiche_id,raison,responsable,telephone,activite,rue,lat,lon,gps}},valide);
+        if(!valide())return false;
+        if(!Array.isArray(r.ajouts_equipe))throw new Error('La liste des ajouts reçue est illisible.');
+        await garderAjouts(r.ajouts_equipe);
+      }
+      if(valide()&&(reprise||type==='RETRAIT')&&anciensAjouts[code]?.some(x=>x.cle===a.cle)){
+        await effacerAnciens(anciensAjouts[code].filter(x=>x.cle!==a.cle));
+      }
+    }
+    if(valide()&&droit(session.peut_voir_situation))await purgerAjouts();
+    return valide();
+  }finally{mutationAjouts=false;revisionAjouts++;if(valide()&&$('mes-ajouts'))afficherTournee();}
+}
+async function effacerAnciens(liste){
+  anciensAjouts[session.code]=liste;reunirAjouts();await db.garder('ajouts',anciensAjouts);
+}
 function boutonAjout(f){
   const b=document.createElement('button'),deja=ajouts.some(a=>a.cle===cleAjout(f));b.type='button';b.className='ajouter-tournee';b.textContent=deja?'Dans ma tournée':'Ajouter à ma tournée';b.disabled=deja||!texte(f.raison)&&!texte(f.responsable);
-  b.onclick=async()=>{try{
+  b.onclick=async()=>{
     if(droit(equipeActuelle()?.fait_la_tournee)&&chiffres(f.nif)&&lotAffiche().lot.some(l=>l.nif===chiffres(f.nif)&&l.etat!=='RETIRE')){message('Déjà dans le lot du jour : prenez-le dans le lot.');return;}
-    await garderAjouts(ajouterAjout(ajouts,f));if(enLigne()&&droit(session?.peut_voir_situation))rafraichir().catch(erreur);b.textContent='Dans ma tournée';b.disabled=true;message('Ajout enregistré dans votre tournée.');
-  }catch(e){erreur(e);}};return b;
+    b.disabled=true;try{if(await modifierAjouts('AJOUT',ajouterAjout([],f))){b.textContent='Dans ma tournée';message('Ajout partagé avec votre équipe.');if(droit(session?.peut_voir_situation))rafraichir().catch(erreur);}}catch(e){erreur(e);}finally{b.disabled=ajouts.some(a=>a.cle===cleAjout(f));}
+  };return b;
 }
 function afficherAjouts(){
   const zone=$('mes-ajouts');zone.replaceChildren();
-  if(!ajouts.length)zone.textContent='Aucun ajout. Dans Chercher, touchez « Ajouter à ma tournée ».';
-  for(const a of ajouts){const etat=etatAjout(a,visitesLocales(),session.agent,jour());if(etat.cache)continue;const f={...a,...etat,origine:'LIBRE'},div=document.createElement('article');div.className='carte lot-tuile'+(etat.etat==='TERMINE'?' terminee':'');div.innerHTML=`<strong>${echapper(a.raison||a.responsable)}</strong><p class="sous">${echapper(a.rue)} · ${echapper(a.nif?'NIF '+a.nif:'sans NIF')}</p><p class="sous">${echapper(RESULTATS[etat.dernier_resultat]?.[0]||'À visiter')}</p><div class="actions"><button class="principal">Noter</button><button>Retirer</button></div>`;
-    const [noter,retirer]=div.querySelectorAll('button');noter.onclick=()=>ouvrirVisite(f);retirer.onclick=async()=>{if(!confirm('Retirer cet ajout de votre tournée ?'))return;try{await garderAjouts(ajouts.filter(x=>x.cle!==a.cle));afficherTournee();}catch(e){erreur(e);}};div.querySelector('.actions').insertAdjacentHTML('beforebegin',mentionCadenas(f.nif));boutonSituation(div.querySelector('.actions'),f);zone.append(div);
+  const anciens=anciensAjouts[session.code]||[];
+  if(anciens.length){
+    const banniere=document.createElement('div');banniere.className='carte';
+    const texteBanniere=document.createElement('p');texteBanniere.textContent=anciens.length+' anciens ajouts gardés sur cet appareil — Les partager avec l’équipe '+equipe.nom+' ?';
+    const partager=document.createElement('button'),effacer=document.createElement('button');
+    partager.textContent='Partager les anciens ajouts';effacer.textContent='Effacer les anciens ajouts';
+    partager.onclick=async()=>{try{await modifierAjouts('AJOUT',anciens,true);}catch(e){erreur(e);}};
+    effacer.onclick=async()=>{if(mutationAjouts||!confirm('Effacer les anciens ajouts de cet appareil ?'))return;try{await effacerAnciens([]);if(droit(session?.peut_voir_situation))await purgerAjouts();if($('mes-ajouts'))afficherTournee();}catch(e){erreur(e);}};
+    banniere.append(texteBanniere,partager,effacer);zone.append(banniere);
   }
-  $('retirer-termines').disabled=!ajouts.some(a=>etatAjout(a,visitesLocales(),session.agent).etat==='TERMINE');
-  $('retirer-termines').onclick=async()=>{if(!confirm('Retirer les ajouts terminés ?'))return;try{await garderAjouts(ajouts.filter(a=>etatAjout(a,visitesLocales(),session.agent).etat!=='TERMINE'));afficherTournee();}catch(e){erreur(e);}};
+  if(!ajouts.length)zone.insertAdjacentText('beforeend','Aucun ajout. Dans Chercher, touchez « Ajouter à ma tournée ».');
+  for(const a of ajouts){const etat=etatDeAjout(a);if(etat.cache)continue;const f={...a,...etat,origine:'LIBRE'},div=document.createElement('article');div.className='carte lot-tuile'+(etat.etat==='TERMINE'?' terminee':'');div.innerHTML=`<strong>${echapper(a.raison||a.responsable)}</strong><p class="sous">${echapper(a.rue)} · ${echapper(a.nif?'NIF '+a.nif:'sans NIF')}</p><p class="sous">${echapper(RESULTATS[etat.dernier_resultat]?.[0]||'À visiter')}</p>${a.local?'<p class="sous">sur cet appareil seulement</p>':a.ajoute_par&&a.ajoute_par!==session.agent?'<p class="sous">ajouté par '+echapper(a.ajoute_par)+'</p>':''}<div class="actions"><button class="principal">Noter</button><button>Retirer</button></div>`;
+    const [noter,retirer]=div.querySelectorAll('button');noter.onclick=()=>ouvrirVisite(f);retirer.onclick=async()=>{if(enLigne()&&!confirm('Retirer cet ajout de la tournée ?'))return;try{await modifierAjouts('RETRAIT',[a]);}catch(e){erreur(e);}};div.querySelector('.actions').insertAdjacentHTML('beforebegin',mentionCadenas(f.nif));boutonSituation(div.querySelector('.actions'),f);zone.append(div);
+  }
+  $('retirer-termines').disabled=!ajouts.some(a=>etatDeAjout(a).etat==='TERMINE');
+  $('retirer-termines').onclick=async()=>{if(enLigne()&&!confirm('Retirer les ajouts terminés ?'))return;try{await modifierAjouts('RETRAIT',ajouts.filter(a=>etatDeAjout(a).etat==='TERMINE'));}catch(e){erreur(e);}};
 }
 function afficherRecherche(){
   visiteEnCours=null;
@@ -540,14 +600,14 @@ function afficherTournee(){
   const avecLot=droit(equipeActuelle()?.fait_la_tournee);
   const r=avecLot?lotAffiche():{lot:[],pris:[]},pris=r.pris;
   const lot=r.lot.filter(f=>f.etat!=='RETIRE'&&!noteAujourdhui(f,lotGarde,visitesLocales(),jour()));
-  $('contenu').innerHTML=`<h1>Tournée</h1><p>Lot du ${echapper(lotGarde.date_lot?lotGarde.date_lot.split('-').reverse().join('/'):'jour non encore téléchargé')}${lotGarde.date_lot&&lotGarde.date_lot!==jour()?' · Dernier lot conservé hors ligne':''}</p><p>${actions.filter(a=>a.agent===session.agent).length} action(s) à envoyer</p><div class="chiffres-lot"><div class="carte"><strong>${lot.filter(f=>f.etat!=='RETIRE').length}</strong><span>dans le lot</span></div><div class="carte active"><strong>${lot.filter(f=>f.etat!=='RETIRE'&&pris.some(p=>p.nif===f.nif&&p.agent===session.agent)).length}</strong><span>à moi</span></div><div class="carte"><strong>${visitesActives(visitesLocales()).filter(v=>v.agent===session.agent&&v.date.slice(0,10)===jour()).length}</strong><span>faits</span></div></div><div id="arrivee" role="status"></div><h2>Le lot du jour</h2><div id="liste-lot"></div><div class="actions"><button id="prendre" class="principal">Je prends</button><button id="lacher">Lâcher</button><button id="retirer">Retirer de la liste</button></div><h2>Mes ajouts</h2><div id="mes-ajouts"></div><button id="retirer-termines">Retirer les terminés</button><h2>Mon trajet</h2><button id="recalculer">Recalculer</button><div id="trajet"></div><h2>Résultats notés aujourd’hui</h2><div id="visites-jour"></div>`;
+  $('contenu').innerHTML=`<h1>Tournée</h1><p>Lot du ${echapper(lotGarde.date_lot?lotGarde.date_lot.split('-').reverse().join('/'):'jour non encore téléchargé')}${lotGarde.date_lot&&lotGarde.date_lot!==jour()?' · Dernier lot conservé hors ligne':''}</p><p>${actions.filter(a=>a.agent===session.agent).length} action(s) à envoyer</p><div class="chiffres-lot"><div class="carte"><strong>${lot.filter(f=>f.etat!=='RETIRE').length}</strong><span>dans le lot</span></div><div class="carte active"><strong>${lot.filter(f=>f.etat!=='RETIRE'&&pris.some(p=>p.nif===f.nif&&p.agent===session.agent)).length}</strong><span>à moi</span></div><div class="carte"><strong>${visitesActives(visitesLocales()).filter(v=>v.agent===session.agent&&v.date.slice(0,10)===jour()).length}</strong><span>faits</span></div></div><div id="arrivee" role="status"></div><h2>Le lot du jour</h2><div id="liste-lot"></div><div class="actions"><button id="prendre" class="principal">Je prends</button><button id="lacher">Lâcher</button><button id="retirer">Retirer de la liste</button></div><h2>Ajouts de l’équipe</h2><div id="mes-ajouts"></div><button id="retirer-termines">Retirer les terminés</button><h2>Mon trajet</h2><button id="recalculer">Recalculer</button><div id="trajet"></div><h2>Résultats notés aujourd’hui</h2><div id="visites-jour"></div>`;
   for(const f of lot.filter(f=>f.etat!=='RETIRE')){const p=pris.find(p=>p.nif===f.nif),div=document.createElement('article');div.className='carte lot-tuile'+(p?(p.agent===session.agent?' active':' autre'):'');div.innerHTML=`<div class="ligne-nom"><label><input type="checkbox" name="selection-lot" value="${echapper(f.nif)}">${echapper(f.raison||f.responsable||f.nif)}</label>${p?.agent===session.agent?'<span class="a-moi">À MOI</span>':''}</div><p class="sous">${echapper(f.adresse||f.rue||'')}${f.attente_jours>=1?' · attend '+Number(f.attente_jours)+' jour(s)':''}</p><p class="sous">${echapper(RESULTATS[f.dernier_resultat]?.[0]||f.dernier_resultat||'À visiter')}</p>${p&&p.agent!==session.agent?`<p class="pris-autre">Pris par ${echapper(p.agent)}</p>`:''}${mentionCadenas(f.nif)}<div class="lot-bas"><span class="rar">${echapper(Number(f.rar||0).toLocaleString('fr-FR'))} <small>FCFA</small></span><button class="principal">Noter</button></div>`;div.querySelector('button').onclick=()=>ouvrirVisite(f);boutonSituation(div.querySelector('.lot-bas'),f);$('liste-lot').append(div);}
   if(!lot.length)$('liste-lot').textContent=r.lot.some(f=>f.etat!=='RETIRE')?'Tous les contribuables du lot ont été notés aujourd’hui.':'Aucun contribuable dans le lot conservé.';
   for(const a of ['prendre','lacher','retirer'])$(a).onclick=()=>actionLot(a).catch(erreur);
   $('recalculer').onclick=()=>recalculerTrajet().catch(erreur);
   for(const v of visitesActives(visitesLocales()).filter(v=>v.agent===session.agent&&v.date.slice(0,10)===jour())){const div=document.createElement('article');div.className='carte';div.textContent=`${v.raison||v.nif} · ${RESULTATS[v.resultat]?.[0]||v.resultat}${v.refus?' · Refus : '+v.refus:''} `;const b=document.createElement('button');b.textContent='Annuler ce résultat';b.onclick=async()=>{if(!confirm('Annuler ce résultat ?'))return;try{const f=annulation(v);await db.fiche(f);await chargerFiches();if(droit(session?.peut_voir_situation))await purgerAjouts();afficherTournee();envoyer();}catch(e){erreur(e);}};div.append(b);$('visites-jour').append(div);}
   if(!avecLot){
-    const chiffres=document.querySelector('.chiffres-lot');chiffres.innerHTML=`<div class="carte"><strong>${ajouts.filter(a=>!etatAjout(a,visitesLocales(),session.agent,jour()).cache).length}</strong><span>ajouts</span></div><div class="carte"><strong>${visitesActives(visitesLocales()).filter(v=>v.agent===session.agent&&v.date.slice(0,10)===jour()).length}</strong><span>faits</span></div>`;
+    const chiffres=document.querySelector('.chiffres-lot');chiffres.innerHTML=`<div class="carte"><strong>${ajouts.filter(a=>!etatDeAjout(a).cache).length}</strong><span>ajouts</span></div><div class="carte"><strong>${visitesActives(visitesLocales()).filter(v=>v.agent===session.agent&&v.date.slice(0,10)===jour()).length}</strong><span>faits</span></div>`;
     chiffres.classList.add('deux');
     $('liste-lot').previousElementSibling.remove();$('liste-lot').remove();$('prendre').parentElement.remove();
     for(const p of [...$('contenu').children].filter(e=>e.tagName==='P'))p.remove();
@@ -607,7 +667,7 @@ function rendreCadenas(){
     <p class="sous">${echapper([v.raison,v.nif].filter(Boolean).join(' · '))} · ${echapper(dateCadenas(v.date,true))}</p></article>`).join('')}`:'';
 }
 function rendreTrajet(){
-  if(!$('trajet'))return;const r=lotAffiche(),m=mesPoints(droit(equipeActuelle()?.fait_la_tournee)?r.lot:[],r.pris,session.agent,ajouts,visitesLocales(),lotGarde,jour());ordre=trajet(depart,m.points);
+  if(!$('trajet'))return;const r=lotAffiche(),m=mesPoints(droit(equipeActuelle()?.fait_la_tournee)?r.lot:[],r.pris,session.agent,ajouts,visitesLocales(),lotGarde,jour(),equipe?.nom);ordre=trajet(depart,m.points);
   $('trajet').innerHTML=`${!pointValide(depart)?'<p>Position actuelle nécessaire pour calculer le trajet.</p>':''}<ol>${ordre.map(f=>`<li>${echapper(f.raison||f.responsable||f.nif)}</li>`).join('')}</ol>${pointValide(depart)?liensMaps(depart,ordre,reglage('MAPS_ETAPES')).map((l,i)=>`<p><a class="bouton" href="${echapper(l)}" target="_blank" rel="noopener">Itinéraire · partie ${i+1}</a></p>`).join(''):''}<h3>À vérifier</h3>${m.aVerifier.map(f=>`<p>${echapper(f.raison||f.responsable||f.nif)} · GPS absent ou imprécis</p>`).join('')||'<p>Aucun.</p>'}`;
 }
 async function recalculerTrajet(){
@@ -659,7 +719,7 @@ async function demarrer(){
   db=await ouvrirStockage(factice,new URL(location.href).searchParams.get('carnet')||'');session=await db.lire('session');
   if(session){identites=lireIdentites(await db.lire('identites'))||new Map();identitesVersion=await db.lire('identites_version')||'';}
   else await effacerIdentites();
-  equipe=await db.lire('equipe');recenses=await db.lire('recenses')||[];connus=await db.lire('connus')||[];lotGarde=await db.lire('lot')||lotGarde;actions=await db.lire('actions')||[];if(!droit(session?.peut_voir_situation))await effacerSituations();else{
+  equipe=await db.lire('equipe');await chargerAjouts();recenses=await db.lire('recenses')||[];connus=await db.lire('connus')||[];lotGarde=await db.lire('lot')||lotGarde;actions=await db.lire('actions')||[];if(!droit(session?.peut_voir_situation))await effacerSituations();else{
     const rr=await db.lire('rars'),ss=await db.lire('situations_ajouts');
     if(rr?.code===session.code)rars=rr.valeur;
     if(ss?.code===session.code)situationsAjouts=ss.valeur;
